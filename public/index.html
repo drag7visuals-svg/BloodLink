@@ -1,0 +1,238 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BloodLink | Blood Bank Management</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div class="layout">
+
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">B</div>
+            <div>
+                <h2>BloodLink</h2>
+                <p>Blood Management System</p>
+            </div>
+        </div>
+
+        <nav>
+            <a href="#dashboard" class="active">Dashboard</a>
+            <a href="#register">Register Blood</a>
+            <a href="#inventory">Blood Inventory</a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <p>Blockchain integration</p>
+            <span id="blockchainStatus">Sepolia Connected</span>
+        </div>
+    </aside>
+
+    <main class="main-content">
+
+        <header class="topbar">
+            <div>
+                <h1>Dashboard</h1>
+                <p>Manage and monitor blood inventory</p>
+            </div>
+
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button id="connectWallet" class="primary-button" type="button">
+                    Connect MetaMask
+                </button>
+
+                <button id="themeToggle" class="theme-button" type="button">
+                    Dark Mode
+                </button>
+            </div>
+        </header>
+
+        <p id="walletStatus" class="message">
+            Wallet not connected
+        </p>
+
+        <section id="dashboard">
+
+            <div class="section-heading">
+                <h2>Overview</h2>
+                <p>Current blood inventory status</p>
+            </div>
+
+            <div class="stats-grid">
+
+                <div class="stat-card">
+                    <p>Total Blood Units</p>
+                    <h2 id="totalUnits">0</h2>
+                </div>
+
+                <div class="stat-card">
+                    <p>Available Units</p>
+                    <h2 id="availableUnits">0</h2>
+                </div>
+
+                <div class="stat-card">
+                    <p>Testing Pending</p>
+                    <h2 id="testingUnits">0</h2>
+                </div>
+
+                <div class="stat-card">
+                    <p>Expired Units</p>
+                    <h2 id="expiredUnits">0</h2>
+                </div>
+
+            </div>
+        </section>
+
+        <section id="register" class="content-card">
+
+            <div class="section-heading">
+                <h2>Register Blood Unit</h2>
+                <p>Add a new blood unit to the inventory</p>
+            </div>
+
+            <form id="bloodForm">
+
+                <div class="form-grid">
+
+                    <div class="form-group">
+                        <label for="unitId">Blood Unit ID</label>
+                        <input type="text" id="unitId"
+                            placeholder="Example: BL001" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="bloodGroup">Blood Group</label>
+                        <select id="bloodGroup" required>
+                            <option value="">Select blood group</option>
+                            <option>A+</option>
+                            <option>A-</option>
+                            <option>B+</option>
+                            <option>B-</option>
+                            <option>AB+</option>
+                            <option>AB-</option>
+                            <option>O+</option>
+                            <option>O-</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="component">Blood Component</label>
+                        <select id="component" required>
+                            <option value="">Select component</option>
+                            <option>Whole Blood</option>
+                            <option>Red Cells</option>
+                            <option>Plasma</option>
+                            <option>Platelets</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="collectionDate">Collection Date</label>
+                        <input type="date" id="collectionDate" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="expiryDate">Expiry Date</label>
+                        <input type="date" id="expiryDate" required>
+                    </div>
+
+                </div>
+
+                <button type="submit" class="primary-button">
+                    Register Blood Unit
+                </button>
+
+                <p id="formMessage" class="message"></p>
+
+            </form>
+        </section>
+
+        <section id="inventory" class="content-card">
+
+            <div class="inventory-heading">
+                <div class="section-heading">
+                    <h2>Blood Inventory</h2>
+                    <p>View and manage registered blood units</p>
+                </div>
+
+                <button id="refreshButton" class="secondary-button">
+                    Refresh
+                </button>
+            </div>
+
+            <div class="filter-grid">
+
+                <input type="text" id="searchInput"
+                    placeholder="Search unit ID...">
+
+                <select id="groupFilter">
+                    <option value="">All Blood Groups</option>
+                    <option>A+</option>
+                    <option>A-</option>
+                    <option>B+</option>
+                    <option>B-</option>
+                    <option>AB+</option>
+                    <option>AB-</option>
+                    <option>O+</option>
+                    <option>O-</option>
+                </select>
+
+                <select id="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option>Collected</option>
+                    <option>Testing Pending</option>
+                    <option>Available</option>
+                    <option>Reserved</option>
+                    <option>Dispatched</option>
+                    <option>Received</option>
+                    <option>Rejected</option>
+                    <option>Expired</option>
+                    <option>Recalled</option>
+                </select>
+
+            </div>
+
+            <p id="inventoryMessage" class="message"></p>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Unit ID</th>
+                            <th>Blood Group</th>
+                            <th>Component</th>
+                            <th>Collection Date</th>
+                            <th>Expiry Date</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="inventoryTable">
+                        <tr>
+                            <td colspan="7">Loading inventory...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </section>
+
+        <footer>
+            <p>BloodLink | Blood Bank Management System</p>
+            <a href="/privacy">Privacy Policy</a>
+        </footer>
+
+    </main>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js"></script>
+<script src="/app.js"></script>
+
+</body>
+</html>
