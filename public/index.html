@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BloodLink | Blood Bank Management</title>
+    <title>BloodLink | Admin Dashboard</title>
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -22,6 +22,7 @@
 
         <nav>
             <a href="#dashboard" class="active">Dashboard</a>
+            <a href="#users">User Management</a>
             <a href="#register">Register Blood</a>
             <a href="#inventory">Blood Inventory</a>
         </nav>
@@ -36,11 +37,19 @@
 
         <header class="topbar">
             <div>
-                <h1>Dashboard</h1>
-                <p>Manage and monitor blood inventory</p>
+                <h1>Admin Dashboard</h1>
+                <p>Manage and monitor BloodLink</p>
             </div>
 
-            <div style="display:flex; gap:10px; align-items:center;">
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+
+                <div style="text-align:right; margin-right:10px;">
+                    <strong id="userName">Loading...</strong>
+                    <p id="userRole" style="font-size:12px; color:#777; margin-top:3px;">
+                        Checking account...
+                    </p>
+                </div>
+
                 <button id="connectWallet" class="primary-button" type="button">
                     Connect MetaMask
                 </button>
@@ -48,12 +57,19 @@
                 <button id="themeToggle" class="theme-button" type="button">
                     Dark Mode
                 </button>
+
+                <button id="logoutButton" class="secondary-button" type="button">
+                    Logout
+                </button>
+
             </div>
         </header>
 
         <p id="walletStatus" class="message">
             Wallet not connected
         </p>
+
+        <!-- DASHBOARD -->
 
         <section id="dashboard">
 
@@ -86,6 +102,122 @@
 
             </div>
         </section>
+
+        <!-- USER MANAGEMENT -->
+
+        <section id="users" class="content-card">
+
+            <div class="section-heading">
+                <h2>User Management</h2>
+                <p>Create and manage Blood Bank, Hospital and Donor accounts</p>
+            </div>
+
+            <!-- CREATE USER -->
+
+            <h3>Create Staff Account</h3>
+
+            <form id="userForm">
+
+                <div class="form-grid">
+
+                    <div class="form-group">
+                        <label for="staffName">Name</label>
+                        <input
+                            type="text"
+                            id="staffName"
+                            placeholder="Enter full name"
+                            maxlength="100"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="staffEmail">Email</label>
+                        <input
+                            type="email"
+                            id="staffEmail"
+                            placeholder="Enter email address"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="staffPassword">Temporary Password</label>
+                        <input
+                            type="password"
+                            id="staffPassword"
+                            placeholder="Minimum 12 characters"
+                            minlength="12"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="staffRole">Account Type</label>
+                        <select id="staffRole" required>
+                            <option value="">Select account type</option>
+                            <option value="bloodbank">Blood Bank</option>
+                            <option value="hospital">Hospital</option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <button type="submit" class="primary-button" id="createUserButton">
+                    Create Account
+                </button>
+
+                <p id="userFormMessage" class="message"></p>
+
+            </form>
+
+            <hr style="margin:30px 0; opacity:0.2;">
+
+            <!-- USER LIST -->
+
+            <div class="inventory-heading">
+
+                <div class="section-heading">
+                    <h3>Registered Users</h3>
+                    <p>View and manage all system accounts</p>
+                </div>
+
+                <button
+                    id="refreshUsersButton"
+                    class="secondary-button"
+                    type="button"
+                >
+                    Refresh Users
+                </button>
+
+            </div>
+
+            <p id="usersMessage" class="message"></p>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Account Status</th>
+                            <th>Created</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="usersTable">
+                        <tr>
+                            <td colspan="6">Loading users...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </section>
+
+        <!-- REGISTER BLOOD -->
 
         <section id="register" class="content-card">
 
@@ -151,6 +283,8 @@
             </form>
         </section>
 
+        <!-- BLOOD INVENTORY -->
+
         <section id="inventory" class="content-card">
 
             <div class="inventory-heading">
@@ -159,7 +293,7 @@
                     <p>View and manage registered blood units</p>
                 </div>
 
-                <button id="refreshButton" class="secondary-button">
+                <button id="refreshButton" class="secondary-button" type="button">
                     Refresh
                 </button>
             </div>
@@ -233,6 +367,298 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js"></script>
 <script src="/app.js"></script>
+
+<script>
+
+// ==============================
+// CURRENT USER
+// ==============================
+
+let currentAdminId = null;
+
+async function loadCurrentUser() {
+    try {
+        const response = await fetch("/api/auth/me");
+
+        if (!response.ok) {
+            window.location.href = "/login.html";
+            return;
+        }
+
+        const data = await response.json();
+
+        if (data.user.role !== "admin") {
+            document.body.innerHTML = "Access denied. Admin account required.";
+            return;
+        }
+
+        currentAdminId = data.user.id;
+
+        document.getElementById("userName").textContent =
+            data.user.name;
+
+        document.getElementById("userRole").textContent =
+            data.user.role.toUpperCase();
+
+        loadUsers();
+
+    } catch (error) {
+        window.location.href = "/login.html";
+    }
+}
+
+// ==============================
+// CREATE STAFF ACCOUNT
+// ==============================
+
+const userForm = document.getElementById("userForm");
+const userFormMessage = document.getElementById("userFormMessage");
+const createUserButton = document.getElementById("createUserButton");
+
+userForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const name = document.getElementById("staffName").value.trim();
+    const email = document.getElementById("staffEmail").value.trim();
+    const password = document.getElementById("staffPassword").value;
+    const role = document.getElementById("staffRole").value;
+
+    userFormMessage.textContent = "";
+    userFormMessage.className = "message";
+
+    createUserButton.disabled = true;
+    createUserButton.textContent = "Creating Account...";
+
+    try {
+        const response = await fetch("/api/auth/users", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                name,
+                email,
+                password,
+                role
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Account creation failed.");
+        }
+
+        userFormMessage.textContent = data.message;
+        userFormMessage.classList.add("success");
+
+        userForm.reset();
+
+        await loadUsers();
+
+    } catch (error) {
+        userFormMessage.textContent = error.message;
+        userFormMessage.classList.add("error");
+
+    } finally {
+        createUserButton.disabled = false;
+        createUserButton.textContent = "Create Account";
+    }
+});
+
+// ==============================
+// LOAD ALL USERS
+// ==============================
+
+const usersTable = document.getElementById("usersTable");
+const usersMessage = document.getElementById("usersMessage");
+
+async function loadUsers() {
+
+    usersTable.innerHTML = `
+        <tr>
+            <td colspan="6">Loading users...</td>
+        </tr>
+    `;
+
+    usersMessage.textContent = "";
+
+    try {
+        const response = await fetch("/api/auth/users");
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to load users.");
+        }
+
+        usersTable.innerHTML = "";
+
+        if (!data.users || data.users.length === 0) {
+            usersTable.innerHTML = `
+                <tr>
+                    <td colspan="6">No users found.</td>
+                </tr>
+            `;
+            return;
+        }
+
+        data.users.forEach(user => {
+
+            const row = document.createElement("tr");
+
+            const nameCell = document.createElement("td");
+            nameCell.textContent = user.name;
+
+            const emailCell = document.createElement("td");
+            emailCell.textContent = user.email;
+
+            const roleCell = document.createElement("td");
+            roleCell.textContent = user.role.toUpperCase();
+
+            const statusCell = document.createElement("td");
+            statusCell.textContent = user.isActive ? "Active" : "Inactive";
+
+            const dateCell = document.createElement("td");
+            dateCell.textContent = user.createdAt
+                ? new Date(user.createdAt).toLocaleDateString()
+                : "N/A";
+
+            const actionCell = document.createElement("td");
+
+            const actionButton = document.createElement("button");
+
+            actionButton.type = "button";
+            actionButton.className = "secondary-button";
+
+            const isCurrentUser = user._id === currentAdminId;
+
+            if (isCurrentUser) {
+                actionButton.textContent = "Current Account";
+                actionButton.disabled = true;
+
+            } else {
+                actionButton.textContent = user.isActive
+                    ? "Deactivate"
+                    : "Activate";
+
+                actionButton.addEventListener("click", () => {
+                    updateUserStatus(user._id, !user.isActive);
+                });
+            }
+
+            actionCell.appendChild(actionButton);
+
+            row.appendChild(nameCell);
+            row.appendChild(emailCell);
+            row.appendChild(roleCell);
+            row.appendChild(statusCell);
+            row.appendChild(dateCell);
+            row.appendChild(actionCell);
+
+            usersTable.appendChild(row);
+        });
+
+    } catch (error) {
+
+        usersTable.innerHTML = `
+            <tr>
+                <td colspan="6">Failed to load users.</td>
+            </tr>
+        `;
+
+        usersMessage.textContent = error.message;
+        usersMessage.className = "message error";
+    }
+}
+
+// ==============================
+// ACTIVATE / DEACTIVATE USER
+// ==============================
+
+async function updateUserStatus(userId, isActive) {
+
+    const action = isActive ? "activate" : "deactivate";
+
+    if (!confirm(`Are you sure you want to ${action} this account?`)) {
+        return;
+    }
+
+    usersMessage.textContent = "";
+
+    try {
+        const response = await fetch(`/api/auth/users/${encodeURIComponent(userId)}/status`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                isActive
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to update account.");
+        }
+
+        usersMessage.textContent = data.message;
+        usersMessage.className = "message success";
+
+        await loadUsers();
+
+    } catch (error) {
+        usersMessage.textContent = error.message;
+        usersMessage.className = "message error";
+    }
+}
+
+// ==============================
+// REFRESH USER LIST
+// ==============================
+
+document.getElementById("refreshUsersButton").addEventListener("click", () => {
+    loadUsers();
+});
+
+// ==============================
+// LOGOUT
+// ==============================
+
+document.getElementById("logoutButton").addEventListener("click", async () => {
+
+    const logoutButton = document.getElementById("logoutButton");
+
+    logoutButton.disabled = true;
+    logoutButton.textContent = "Logging out...";
+
+    try {
+        const response = await fetch("/api/auth/logout", {
+            method: "POST"
+        });
+
+        if (!response.ok) {
+            throw new Error("Logout failed.");
+        }
+
+        window.location.href = "/login.html";
+
+    } catch (error) {
+        alert(error.message);
+
+        logoutButton.disabled = false;
+        logoutButton.textContent = "Logout";
+    }
+});
+
+// ==============================
+// INITIALIZE DASHBOARD
+// ==============================
+
+loadCurrentUser();
+
+</script>
 
 </body>
 </html>

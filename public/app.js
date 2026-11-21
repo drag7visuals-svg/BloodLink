@@ -24,6 +24,19 @@ const blockchainStatuses = {
     "Recalled": 8
 };
 
+// Allowed status transitions
+const allowedStatuses = {
+    "Collected": ["Collected", "Testing Pending", "Rejected"],
+    "Testing Pending": ["Testing Pending", "Available", "Rejected"],
+    "Available": ["Available", "Reserved", "Expired", "Recalled"],
+    "Reserved": ["Reserved", "Dispatched", "Available", "Recalled"],
+    "Dispatched": ["Dispatched", "Received", "Recalled"],
+    "Received": ["Received", "Recalled"],
+    "Rejected": ["Rejected"],
+    "Expired": ["Expired"],
+    "Recalled": ["Recalled"]
+};
+
 // ==============================
 // LOAD BLOOD INVENTORY
 // ==============================
@@ -32,10 +45,12 @@ async function loadInventory() {
     const message = document.getElementById("inventoryMessage");
 
     try {
-        const response = await fetch(API);
+        const response = await fetch(API, {
+            credentials: "include"
+        });
 
         if (!response.ok) {
-            throw new Error("Could not load inventory");
+            throw new Error("Could not load inventory.");
         }
 
         bloodUnits = await response.json();
@@ -107,29 +122,23 @@ function showInventory() {
 
         statusSelect.className = "status-select";
 
-        const allowedStatuses = {
-            "Collected": ["Collected", "Testing Pending", "Rejected"],
-            "Testing Pending": ["Testing Pending", "Available", "Rejected"],
-            "Available": ["Available", "Reserved", "Expired", "Recalled"],
-            "Reserved": ["Reserved", "Dispatched", "Available", "Recalled"],
-            "Dispatched": ["Dispatched", "Received", "Recalled"],
-            "Received": ["Received", "Recalled"],
-            "Rejected": ["Rejected"],
-            "Expired": ["Expired"],
-            "Recalled": ["Recalled"]
-        };
-
         allowedStatuses[unit.status].forEach(value => {
             const option = document.createElement("option");
+
             option.value = value;
             option.textContent = value;
+
             statusSelect.appendChild(option);
         });
 
         statusSelect.value = unit.status;
 
         statusSelect.addEventListener("change", async () => {
+            statusSelect.disabled = true;
+
             await updateStatus(unit.unitId, statusSelect.value);
+
+            statusSelect.disabled = false;
         });
 
         actionCell.appendChild(statusSelect);
@@ -152,7 +161,8 @@ function formatDate(date) {
 // ==============================
 
 function updateStatistics() {
-    document.getElementById("totalUnits").textContent = bloodUnits.length;
+    document.getElementById("totalUnits").textContent =
+        bloodUnits.length;
 
     document.getElementById("availableUnits").textContent =
         bloodUnits.filter(unit => unit.status === "Available").length;
@@ -171,6 +181,27 @@ function updateStatistics() {
 
 async function updateStatus(unitId, status) {
     try {
+        // Verify ownership and current database status first
+        const ownershipResponse = await fetch(
+            `${API}/${encodeURIComponent(unitId)}`,
+            {
+                credentials: "include"
+            }
+        );
+
+        const ownedUnit = await ownershipResponse.json();
+
+        if (!ownershipResponse.ok) {
+            throw new Error(
+                ownedUnit.message || "You cannot manage this blood unit."
+            );
+        }
+
+        // Validate allowed transition
+        if (!allowedStatuses[ownedUnit.status]?.includes(status)) {
+            throw new Error("This status transition is not allowed.");
+        }
+
         if (!bloodLinkContract) {
             throw new Error("Please connect MetaMask first.");
         }
@@ -187,16 +218,19 @@ async function updateStatus(unitId, status) {
         const unitExists = existingUnit.exists ?? existingUnit[2];
 
         if (!unitExists) {
-            throw new Error("This blood unit does not exist on blockchain.");
+            throw new Error(
+                "This blood unit does not exist on blockchain."
+            );
         }
 
         const currentStatus = Number(
             existingUnit.status ?? existingUnit[1]
         );
 
-        // Check if status is already the same
         if (currentStatus === blockchainStatus) {
-            throw new Error("This blood unit already has this status on blockchain.");
+            throw new Error(
+                "This blood unit already has this status on blockchain."
+            );
         }
 
         // Ask MetaMask to update blockchain
@@ -216,6 +250,7 @@ async function updateStatus(unitId, status) {
             `${API}/${encodeURIComponent(unitId)}/status`,
             {
                 method: "PATCH",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/json"
                 },
@@ -232,7 +267,9 @@ async function updateStatus(unitId, status) {
             );
         }
 
-        alert("Status successfully updated in blockchain and MongoDB!");
+        alert(
+            "Status successfully updated in blockchain and MongoDB!"
+        );
 
         await loadInventory();
 
@@ -249,15 +286,29 @@ async function updateStatus(unitId, status) {
 // SEARCH AND FILTERS
 // ==============================
 
-document.getElementById("searchInput").addEventListener("input", showInventory);
-document.getElementById("groupFilter").addEventListener("change", showInventory);
-document.getElementById("statusFilter").addEventListener("change", showInventory);
+document.getElementById("searchInput").addEventListener(
+    "input",
+    showInventory
+);
+
+document.getElementById("groupFilter").addEventListener(
+    "change",
+    showInventory
+);
+
+document.getElementById("statusFilter").addEventListener(
+    "change",
+    showInventory
+);
 
 // ==============================
 // REFRESH INVENTORY
 // ==============================
 
-document.getElementById("refreshButton").addEventListener("click", loadInventory);
+document.getElementById("refreshButton").addEventListener(
+    "click",
+    loadInventory
+);
 
 // ==============================
 // DARK MODE
@@ -271,12 +322,16 @@ document.getElementById("themeToggle").addEventListener("click", () => {
     document.getElementById("themeToggle").textContent =
         isDark ? "Light Mode" : "Dark Mode";
 
-    localStorage.setItem("bloodLinkTheme", isDark ? "dark" : "light");
+    localStorage.setItem(
+        "bloodLinkTheme",
+        isDark ? "dark" : "light"
+    );
 });
 
 // Restore saved theme
 if (localStorage.getItem("bloodLinkTheme") === "dark") {
     document.body.classList.add("dark");
+
     document.getElementById("themeToggle").textContent = "Light Mode";
 }
 
@@ -295,7 +350,9 @@ async function connectWallet() {
         }
 
         if (typeof ethers === "undefined") {
-            throw new Error("Ethers.js could not load. Check your internet connection.");
+            throw new Error(
+                "Ethers.js could not load. Check your internet connection."
+            );
         }
 
         connectButton.disabled = true;
@@ -310,13 +367,17 @@ async function connectWallet() {
         const network = await provider.getNetwork();
 
         if (network.chainId !== 11155111n) {
-            throw new Error("Please select Sepolia Test Network in MetaMask.");
+            throw new Error(
+                "Please select Sepolia Test Network in MetaMask."
+            );
         }
 
         const response = await fetch("/contract-abi.json");
 
         if (!response.ok) {
-            throw new Error("Contract ABI file not found in public folder.");
+            throw new Error(
+                "Contract ABI file not found in public folder."
+            );
         }
 
         const contractABI = await response.json();
@@ -330,7 +391,9 @@ async function connectWallet() {
         const address = await signer.getAddress();
 
         walletStatus.textContent = "Wallet connected: " + address;
+
         blockchainStatusElement.textContent = "Wallet Connected";
+
         connectButton.textContent = "Wallet Connected";
 
     } catch (error) {
@@ -339,7 +402,9 @@ async function connectWallet() {
         bloodLinkContract = null;
 
         walletStatus.textContent = error.message;
+
         connectButton.textContent = "Connect MetaMask";
+
         blockchainStatusElement.textContent = "Not Connected";
 
     } finally {
@@ -356,78 +421,98 @@ if (connectButton) {
 // MONGODB + BLOCKCHAIN
 // ==============================
 
-document.getElementById("bloodForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
+document.getElementById("bloodForm").addEventListener(
+    "submit",
+    async (event) => {
 
-    const message = document.getElementById("formMessage");
+        event.preventDefault();
 
-    const bloodData = {
-        unitId: document.getElementById("unitId").value.trim(),
-        bloodGroup: document.getElementById("bloodGroup").value,
-        component: document.getElementById("component").value,
-        collectionDate: document.getElementById("collectionDate").value,
-        expiryDate: document.getElementById("expiryDate").value
-    };
+        const message = document.getElementById("formMessage");
 
-    try {
-        if (!bloodLinkContract) {
-            throw new Error("Please connect MetaMask first.");
-        }
+        const bloodData = {
+            unitId: document.getElementById("unitId").value.trim(),
+            bloodGroup: document.getElementById("bloodGroup").value,
+            component: document.getElementById("component").value,
+            collectionDate: document.getElementById("collectionDate").value,
+            expiryDate: document.getElementById("expiryDate").value
+        };
 
-        message.textContent = "Checking blockchain...";
-        message.className = "message";
+        try {
+            if (!bloodLinkContract) {
+                throw new Error("Please connect MetaMask first.");
+            }
 
-        // Check whether unit already exists on blockchain
-        const existingUnit = await bloodLinkContract.bloodUnits(bloodData.unitId);
+            if (
+                new Date(bloodData.expiryDate) <=
+                new Date(bloodData.collectionDate)
+            ) {
+                throw new Error(
+                    "Expiry date must be after collection date."
+                );
+            }
 
-        const unitExists = existingUnit.exists ?? existingUnit[2];
+            message.textContent = "Checking blockchain...";
+            message.className = "message";
 
-        if (!unitExists) {
-            message.textContent = "Please confirm the transaction in MetaMask...";
-
-            const transaction = await bloodLinkContract.registerBloodUnit(
+            // Check whether unit already exists on blockchain
+            const existingUnit = await bloodLinkContract.bloodUnits(
                 bloodData.unitId
             );
 
-            message.textContent = "Waiting for blockchain confirmation...";
+            const unitExists = existingUnit.exists ?? existingUnit[2];
 
-            await transaction.wait();
+            if (!unitExists) {
+                message.textContent =
+                    "Please confirm the transaction in MetaMask...";
+
+                const transaction =
+                    await bloodLinkContract.registerBloodUnit(
+                        bloodData.unitId
+                    );
+
+                message.textContent =
+                    "Waiting for blockchain confirmation...";
+
+                await transaction.wait();
+            }
+
+            // Save unit details in MongoDB
+            const response = await fetch(API, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(bloodData)
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    "Blockchain record exists, but database save failed: " +
+                    result.message
+                );
+            }
+
+            message.textContent =
+                "Blood unit registered successfully in MongoDB and blockchain!";
+
+            message.className = "message success";
+
+            document.getElementById("bloodForm").reset();
+
+            await loadInventory();
+
+        } catch (error) {
+            console.error(error);
+
+            message.textContent = error.reason || error.message;
+
+            message.className = "message error";
         }
-
-        // Save unit details in MongoDB
-        const response = await fetch(API, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(bloodData)
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                "Blockchain record exists, but database save failed: " +
-                result.message
-            );
-        }
-
-        message.textContent =
-            "Blood unit registered successfully in MongoDB and blockchain!";
-
-        message.className = "message success";
-
-        document.getElementById("bloodForm").reset();
-
-        await loadInventory();
-
-    } catch (error) {
-        console.error(error);
-
-        message.textContent = error.reason || error.message;
-        message.className = "message error";
     }
-});
+);
 
 // ==============================
 // LOAD INVENTORY WHEN PAGE OPENS

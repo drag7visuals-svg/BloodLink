@@ -19,7 +19,12 @@ const bloodUnitSchema = new mongoose.Schema(
         component: {
             type: String,
             required: true,
-            enum: ["Whole Blood", "Red Cells", "Plasma", "Platelets"]
+            enum: [
+                "Whole Blood",
+                "Red Cells",
+                "Plasma",
+                "Platelets"
+            ]
         },
 
         collectionDate: {
@@ -46,6 +51,22 @@ const bloodUnitSchema = new mongoose.Schema(
                 "Recalled"
             ],
             default: "Collected"
+        },
+
+        // Blood Bank that registered this unit
+        registeredBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+            index: true
+        },
+
+        // Blood request associated with this reserved unit
+        reservedForRequest: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "BloodRequest",
+            default: null,
+            index: true
         }
     },
     {

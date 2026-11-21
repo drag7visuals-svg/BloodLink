@@ -2,3 +2,10 @@ node_modules/
 .env
 .DS_Store
 npm-debug.log
+# Sensitive environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
