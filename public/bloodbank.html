@@ -22,6 +22,7 @@
 
         <nav>
             <a href="#overview" class="active">Overview</a>
+            <a href="#expiryAlerts">Expiry Alerts</a>
             <a href="#requests">Hospital Requests</a>
             <a href="#register">Register Blood</a>
             <a href="#inventory">My Inventory</a>
@@ -82,6 +83,95 @@
                     <h2 id="expiredUnits">0</h2>
                 </div>
             </div>
+        </section>
+
+        <!-- EXPIRY ALERTS -->
+
+        <section id="expiryAlerts">
+
+            <div class="section-heading inventory-heading">
+                <div>
+                    <h2>Blood Expiry Alerts</h2>
+                    <p>Monitor blood units approaching their expiry date or already expired.</p>
+                </div>
+
+                <button class="secondary-button" id="refreshExpiryButton">
+                    Refresh Alerts
+                </button>
+            </div>
+
+            <div class="stats-grid">
+
+                <div class="stat-card">
+                    <p>Expiring Within 7 Days</p>
+                    <h2 id="expiringSoonCount">0</h2>
+                </div>
+
+                <div class="stat-card">
+                    <p>Already Expired</p>
+                    <h2 id="expiredAlertCount">0</h2>
+                </div>
+
+            </div>
+
+            <div class="content-card">
+
+                <h3>Expiring Soon</h3>
+                <p>Blood units approaching their expiry date.</p>
+
+                <p id="expiringSoonMessage" class="message"></p>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Unit ID</th>
+                                <th>Blood Group</th>
+                                <th>Component</th>
+                                <th>Expiry Date</th>
+                                <th>Days Remaining</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="expiringSoonTable">
+                            <tr>
+                                <td colspan="5">Loading expiry alerts...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
+            <div class="content-card">
+
+                <h3>Already Expired</h3>
+                <p>Blood units whose expiry dates have passed.</p>
+
+                <p id="expiredAlertMessage" class="message"></p>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Unit ID</th>
+                                <th>Blood Group</th>
+                                <th>Component</th>
+                                <th>Expiry Date</th>
+                                <th>Current Status</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="expiredAlertTable">
+                            <tr>
+                                <td colspan="5">Loading expired units...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
         </section>
 
         <!-- BLOCKCHAIN CONNECTION -->
@@ -159,12 +249,14 @@
         <!-- REGISTER BLOOD -->
 
         <section id="register">
+
             <div class="section-heading">
                 <h2>Register Blood Unit</h2>
                 <p>Add a new blood unit to your inventory and blockchain.</p>
             </div>
 
             <div class="content-card">
+
                 <form id="bloodForm">
 
                     <div class="form-grid">
@@ -205,6 +297,15 @@
                             </select>
                         </div>
 
+                        <!-- DONOR SELECTION -->
+
+                        <div class="form-group">
+                            <label for="donorId">Select Donor</label>
+                            <select id="donorId">
+                                <option value="">No donor selected</option>
+                            </select>
+                        </div>
+
                         <div class="form-group">
                             <label for="collectionDate">Collection Date</label>
                             <input
@@ -232,7 +333,47 @@
                     <p id="formMessage" class="message"></p>
 
                 </form>
+
             </div>
+
+            <!-- QR CODE PREVIEW -->
+
+            <div
+                class="content-card"
+                id="qrCodeCard"
+                style="display:none; margin-top:20px;"
+            >
+
+                <h3>Blood Unit QR Code</h3>
+
+                <p>
+                    Scan this QR code to open the blood unit tracking page.
+                </p>
+
+                <div style="text-align:center; padding:20px;">
+
+                    <h3 id="qrUnitId"></h3>
+
+                    <img
+                        id="bloodUnitQR"
+                        alt="Blood Unit QR Code"
+                        style="width:220px; height:220px; object-fit:contain;"
+                    >
+
+                    <br><br>
+
+                    <button
+                        type="button"
+                        class="primary-button"
+                        id="downloadQRButton"
+                    >
+                        Download QR Code
+                    </button>
+
+                </div>
+
+            </div>
+
         </section>
 
         <!-- INVENTORY -->
@@ -322,7 +463,13 @@
     </main>
 </div>
 
+<!-- EXTERNAL LIBRARIES -->
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<!-- PROJECT SCRIPTS -->
+
 <script src="/bloodbank.js"></script>
 <script src="/app.js"></script>
 <script src="/requests.js"></script>

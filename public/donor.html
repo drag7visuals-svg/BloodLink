@@ -1,0 +1,764 @@
+
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>BloodLink | Donor Dashboard</title>
+
+    <link rel="stylesheet" href="/styles.css">
+
+    <script>
+        // Apply saved theme before the page renders
+        const savedTheme = localStorage.getItem("donorTheme") || "light";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+    </script>
+
+    <style>
+        /* ==============================
+           THEME VARIABLES
+        ============================== */
+
+        :root {
+            color-scheme: light;
+
+            --primary: #c62828;
+            --primary-hover: #a91f1f;
+            --primary-soft: #fff0f0;
+
+            --bg: #f5f6f8;
+            --surface: #ffffff;
+            --surface-secondary: #fafafa;
+
+            --text: #252b33;
+            --text-secondary: #737d89;
+
+            --border: #e6e8ec;
+            --sidebar: #ffffff;
+            --sidebar-text: #4c5663;
+            --sidebar-active: #fff0f0;
+
+            --success: #16834a;
+            --success-soft: #e9f8ef;
+
+            --shadow: 0 2px 12px rgba(0, 0, 0, 0.035);
+        }
+
+        html[data-theme="dark"] {
+            color-scheme: dark;
+
+            --primary: #f05252;
+            --primary-hover: #ff6868;
+            --primary-soft: #382224;
+
+            --bg: #151719;
+            --surface: #202326;
+            --surface-secondary: #292d31;
+
+            --text: #f1f3f5;
+            --text-secondary: #a2aab3;
+
+            --border: #353a40;
+            --sidebar: #1c1f22;
+            --sidebar-text: #c2c8ce;
+            --sidebar-active: #382224;
+
+            --success: #55c88a;
+            --success-soft: #20372b;
+
+            --shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* ==============================
+           GLOBAL
+        ============================== */
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        button {
+            font: inherit;
+        }
+
+        /* ==============================
+           LAYOUT
+        ============================== */
+
+        .donor-layout {
+            min-height: 100vh;
+            display: flex;
+            background: var(--bg);
+        }
+
+        /* ==============================
+           SIDEBAR
+        ============================== */
+
+        .donor-sidebar {
+            width: 245px;
+            min-height: 100vh;
+            background: var(--sidebar);
+            border-right: 1px solid var(--border);
+            padding: 27px 19px;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .donor-brand {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 48px;
+            color: var(--text);
+        }
+
+        .donor-brand-icon {
+            width: 39px;
+            height: 39px;
+            display: grid;
+            place-items: center;
+            background: var(--primary);
+            color: white;
+            border-radius: 9px;
+            font-weight: 800;
+        }
+
+        .donor-nav-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            margin: 0 0 13px 10px;
+        }
+
+        .donor-nav-item {
+            display: block;
+            padding: 13px 14px;
+            margin-bottom: 7px;
+            border-radius: 7px;
+            font-size: 14px;
+            color: var(--sidebar-text);
+        }
+
+        .donor-nav-item.active {
+            background: var(--sidebar-active);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .donor-sidebar-bottom {
+            margin-top: auto;
+        }
+
+        /* ==============================
+           MAIN CONTENT
+        ============================== */
+
+        .donor-main {
+            flex: 1;
+            min-width: 0;
+            padding: 32px 42px;
+        }
+
+        .donor-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            margin-bottom: 37px;
+        }
+
+        .donor-topbar h2 {
+            font-size: 21px;
+            margin: 0;
+            font-weight: 650;
+        }
+
+        .donor-topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .donor-account-label {
+            background: var(--primary-soft);
+            color: var(--primary);
+            padding: 9px 13px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ==============================
+           THEME BUTTON
+        ============================== */
+
+        .theme-toggle {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 9px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* ==============================
+           WELCOME
+        ============================== */
+
+        .donor-welcome {
+            margin-bottom: 32px;
+        }
+
+        .donor-welcome h1 {
+            font-size: 29px;
+            margin: 0 0 9px;
+            font-weight: 700;
+        }
+
+        .donor-welcome h1 span {
+            color: var(--primary);
+        }
+
+        .donor-welcome p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* ==============================
+           SECTIONS
+        ============================== */
+
+        .donor-section {
+            margin-bottom: 29px;
+        }
+
+        .donor-section-heading {
+            font-size: 17px;
+            font-weight: 650;
+            margin: 0 0 15px;
+        }
+
+        /* ==============================
+           PROFILE CARD
+        ============================== */
+
+        .donor-profile-card {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 26px;
+            padding: 24px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+
+        .donor-profile-item label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .donor-profile-item p {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0;
+            overflow-wrap: anywhere;
+            color: var(--text);
+        }
+
+        .account-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--success) !important;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        /* ==============================
+           STATISTICS
+        ============================== */
+
+        .donor-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .donor-stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 22px;
+            box-shadow: var(--shadow);
+        }
+
+        .donor-stat-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 17px;
+        }
+
+        .donor-stat-icon {
+            width: 37px;
+            height: 37px;
+            display: grid;
+            place-items: center;
+            background: var(--primary-soft);
+            color: var(--primary);
+            border-radius: 8px;
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        .donor-stat-card p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .donor-stat-card h3 {
+            font-size: 29px;
+            margin: 0;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* ==============================
+           DONATION TABLE
+        ============================== */
+
+        .donor-table-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .donor-table-heading {
+            padding: 21px 22px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .donor-table-heading h3 {
+            font-size: 17px;
+            margin: 0 0 7px;
+        }
+
+        .donor-table-heading p {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin: 0;
+        }
+
+        #donationMessage {
+            margin-top: 10px;
+        }
+
+        .donor-table-scroll {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .donor-table {
+            width: 100%;
+            min-width: 650px;
+            border-collapse: collapse;
+        }
+
+        .donor-table th,
+        .donor-table td {
+            padding: 15px 18px;
+            text-align: left;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .donor-table th {
+            background: var(--surface-secondary);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .donor-table td {
+            color: var(--text);
+        }
+
+        .donor-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .donor-empty-state {
+            text-align: center !important;
+            padding: 35px 15px !important;
+            color: var(--text-secondary) !important;
+        }
+
+        /* ==============================
+           BUTTONS
+        ============================== */
+
+        .donor-logout {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            text-align: left;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+
+        .donor-logout:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: var(--primary-soft);
+        }
+
+        .donor-logout:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* ==============================
+           FOOTER AND MESSAGES
+        ============================== */
+
+        .donor-footer {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-top: 35px;
+        }
+
+        .donor-message {
+            font-size: 13px;
+            color: var(--primary);
+            margin-top: 12px;
+        }
+
+        /* ==============================
+           RESPONSIVE
+        ============================== */
+
+        @media (max-width: 850px) {
+            .donor-sidebar {
+                width: 205px;
+            }
+
+            .donor-main {
+                padding: 27px 23px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .donor-layout {
+                flex-direction: column;
+            }
+
+            .donor-sidebar {
+                width: 100%;
+                min-height: auto;
+                padding: 15px 18px;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .donor-brand {
+                margin-bottom: 0;
+            }
+
+            .donor-nav-label,
+            .donor-nav-item,
+            .donor-sidebar-bottom {
+                display: none;
+            }
+
+            .donor-main {
+                padding: 22px 15px;
+            }
+
+            .donor-topbar {
+                margin-bottom: 28px;
+            }
+
+            .donor-topbar h2 {
+                font-size: 17px;
+            }
+
+            .donor-welcome h1 {
+                font-size: 24px;
+            }
+
+            .donor-profile-card,
+            .donor-stat-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .donor-account-label {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="donor-layout">
+
+    <!-- SIDEBAR -->
+
+    <aside class="donor-sidebar">
+
+        <div class="donor-brand">
+            <div class="donor-brand-icon">B</div>
+            <span>BloodLink</span>
+        </div>
+
+        <p class="donor-nav-label">MENU</p>
+
+        <div class="donor-nav-item active">
+            Dashboard
+        </div>
+
+        <div class="donor-nav-item">
+            Donation History
+        </div>
+
+        <div class="donor-sidebar-bottom">
+            <button type="button" class="donor-logout" id="sidebarLogoutButton">
+                Log Out
+            </button>
+        </div>
+
+    </aside>
+
+
+    <!-- MAIN CONTENT -->
+
+    <main class="donor-main">
+
+        <header class="donor-topbar">
+
+            <h2>Donor Dashboard</h2>
+
+            <div class="donor-topbar-actions">
+
+                <span class="donor-account-label">
+                    Blood Donor
+                </span>
+
+                <button
+                    type="button"
+                    class="theme-toggle"
+                    id="themeToggle"
+                    aria-label="Toggle light and dark mode">
+                    Dark Mode
+                </button>
+
+            </div>
+
+        </header>
+
+
+        <!-- WELCOME -->
+
+        <section class="donor-welcome">
+
+            <h1>
+                Welcome, <span id="donorName">Donor</span>
+            </h1>
+
+            <p>
+                Manage your donor profile and track your donation activity.
+            </p>
+
+        </section>
+
+
+        <!-- PROFILE -->
+
+        <section class="donor-section">
+
+            <h3 class="donor-section-heading">
+                Account Information
+            </h3>
+
+            <div class="donor-profile-card">
+
+                <div class="donor-profile-item">
+                    <label>Full Name</label>
+                    <p id="donorFullName">Loading...</p>
+                </div>
+
+                <div class="donor-profile-item">
+                    <label>Email Address</label>
+                    <p id="donorEmail">Loading...</p>
+                </div>
+
+                <div class="donor-profile-item">
+                    <label>Account Type</label>
+                    <p>Blood Donor</p>
+                </div>
+
+                <div class="donor-profile-item">
+                    <label>Account Status</label>
+                    <p class="account-status">
+                        <span class="status-dot"></span>
+                        Active
+                    </p>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- STATISTICS -->
+
+        <section class="donor-section">
+
+            <h3 class="donor-section-heading">
+                Donation Overview
+            </h3>
+
+            <div class="donor-stat-grid">
+
+                <div class="donor-stat-card">
+
+                    <div class="donor-stat-top">
+                        <p>Total Donations</p>
+                        <div class="donor-stat-icon">+</div>
+                    </div>
+
+                    <h3 id="totalDonations">0</h3>
+
+                </div>
+
+
+                <div class="donor-stat-card">
+
+                    <div class="donor-stat-top">
+                        <p>Blood Units Registered</p>
+                        <div class="donor-stat-icon">B</div>
+                    </div>
+
+                    <h3 id="totalUnits">0</h3>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- DONATION HISTORY -->
+
+        <section class="donor-section">
+
+            <div class="donor-table-card">
+
+                <div class="donor-table-heading">
+
+                    <h3>My Donation History</h3>
+
+                    <p>
+                        View the blood units registered under your donor account.
+                    </p>
+
+                    <p id="donationMessage">
+                        Loading donation history...
+                    </p>
+
+                </div>
+
+
+                <div class="donor-table-scroll">
+
+                    <table class="donor-table">
+
+                        <thead>
+                            <tr>
+                                <th>Blood Unit ID</th>
+                                <th>Blood Group</th>
+                                <th>Component</th>
+                                <th>Collection Date</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="donationTable">
+
+                            <tr>
+                                <td colspan="5" class="donor-empty-state">
+                                    Loading donation history...
+                                </td>
+                            </tr>
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <button
+            type="button"
+            class="donor-logout"
+            id="mainLogoutButton"
+            style="width: auto; display: none;">
+            Log Out
+        </button>
+
+        <p id="donorMessage" class="donor-message" role="status"></p>
+
+
+        <footer class="donor-footer">
+            BloodLink | Blood Bank Management System
+        </footer>
+
+    </main>
+
+</div>
+
+<script src="/donor.js"></script>
+
+</body>
+</html>

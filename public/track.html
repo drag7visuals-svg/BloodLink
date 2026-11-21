@@ -1,0 +1,408 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>BloodLink | Blood Unit Tracking</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            color: #202938;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 20px 7%;
+        }
+
+        .brand {
+            font-size: 23px;
+            font-weight: 700;
+            color: #c62828;
+        }
+
+        .brand span {
+            color: #202938;
+        }
+
+        main {
+            max-width: 650px;
+            margin: 55px auto;
+            padding: 0 20px;
+        }
+
+        .heading {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .heading h1 {
+            font-size: 27px;
+            margin-bottom: 9px;
+        }
+
+        .heading p {
+            color: #687386;
+            font-size: 14px;
+        }
+
+        .tracking-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 28px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+        }
+
+        .unit-label {
+            color: #687386;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 7px;
+        }
+
+        .unit-id {
+            font-size: 23px;
+            font-weight: 700;
+            margin-bottom: 22px;
+            overflow-wrap: anywhere;
+        }
+
+        .status-container {
+            padding: 16px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+
+        .status-label {
+            font-size: 12px;
+            color: #687386;
+            margin-bottom: 8px;
+        }
+
+        .status {
+            display: inline-block;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 7px 12px;
+            border-radius: 4px;
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .status.available {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status.expired,
+        .status.rejected,
+        .status.recalled {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status.reserved {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .details-title {
+            font-size: 17px;
+            margin-bottom: 17px;
+        }
+
+        .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px 15px;
+        }
+
+        .detail-label {
+            font-size: 12px;
+            color: #687386;
+            margin-bottom: 7px;
+        }
+
+        .detail-value {
+            font-size: 15px;
+            font-weight: 600;
+            overflow-wrap: anywhere;
+        }
+
+        .notice {
+            margin-top: 25px;
+            padding: 14px;
+            background: #fff8e6;
+            border: 1px solid #f3dfaa;
+            border-radius: 7px;
+            color: #785b17;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .message {
+            text-align: center;
+            padding: 35px 15px;
+            color: #687386;
+            line-height: 1.6;
+        }
+
+        .message.error {
+            color: #b91c1c;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #8992a1;
+            font-size: 12px;
+        }
+
+        @media (max-width: 480px) {
+            main {
+                margin: 35px auto;
+            }
+
+            .tracking-card {
+                padding: 20px;
+            }
+
+            .heading h1 {
+                font-size: 23px;
+            }
+
+            .details-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 20px 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="brand">Blood<span>Link</span></div>
+    </header>
+
+    <main>
+
+        <div class="heading">
+            <h1>Blood Unit Tracking</h1>
+            <p>View the registered tracking information for this blood unit.</p>
+        </div>
+
+        <div class="tracking-card">
+
+            <div id="loadingMessage" class="message">
+                Retrieving blood unit information...
+            </div>
+
+            <div id="errorMessage" class="message error" hidden>
+                Unable to retrieve blood unit information.
+            </div>
+
+            <div id="trackingDetails" hidden>
+
+                <div class="unit-label">Blood Unit ID</div>
+                <div class="unit-id" id="unitId">-</div>
+
+                <div class="status-container">
+                    <div class="status-label">Current Status</div>
+                    <span class="status" id="unitStatus">-</span>
+                </div>
+
+                <h2 class="details-title">Blood Unit Information</h2>
+
+                <div class="details-grid">
+
+                    <div>
+                        <div class="detail-label">Blood Group</div>
+                        <div class="detail-value" id="bloodGroup">-</div>
+                    </div>
+
+                    <div>
+                        <div class="detail-label">Component</div>
+                        <div class="detail-value" id="component">-</div>
+                    </div>
+
+                    <div>
+                        <div class="detail-label">Collection Date</div>
+                        <div class="detail-value" id="collectionDate">-</div>
+                    </div>
+
+                    <div>
+                        <div class="detail-label">Expiry Date</div>
+                        <div class="detail-value" id="expiryDate">-</div>
+                    </div>
+
+                </div>
+
+                <div class="notice">
+                    This page displays registered blood unit information.
+                    It does not establish medical suitability, testing results,
+                    storage conditions, or authorization for transfusion.
+                    Always verify through an authorized blood bank.
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="footer">
+            BloodLink | Blockchain-Based Blood Bank Management System
+        </div>
+
+    </main>
+
+    <script>
+        // ==============================
+        // GET BLOOD UNIT ID FROM QR URL
+        // ==============================
+
+        const params = new URLSearchParams(window.location.search);
+
+        const unitId = params.get("unitId");
+
+        // ==============================
+        // ELEMENTS
+        // ==============================
+
+        const loadingMessage =
+            document.getElementById("loadingMessage");
+
+        const errorMessage =
+            document.getElementById("errorMessage");
+
+        const trackingDetails =
+            document.getElementById("trackingDetails");
+
+        // ==============================
+        // FORMAT DATE
+        // ==============================
+
+        function formatDate(dateValue) {
+            if (!dateValue) {
+                return "Not available";
+            }
+
+            const date = new Date(dateValue);
+
+            if (isNaN(date.getTime())) {
+                return "Not available";
+            }
+
+            return date.toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric"
+            });
+        }
+
+        // ==============================
+        // DISPLAY ERROR
+        // ==============================
+
+        function showError(message) {
+            loadingMessage.hidden = true;
+            trackingDetails.hidden = true;
+            errorMessage.hidden = false;
+            errorMessage.textContent = message;
+        }
+
+        // ==============================
+        // LOAD TRACKING INFORMATION
+        // ==============================
+
+        async function loadTrackingDetails() {
+
+            if (!unitId || !unitId.trim()) {
+                showError("No blood unit ID was provided.");
+                return;
+            }
+
+            try {
+
+                const response = await fetch(
+                    `/api/tracking/${encodeURIComponent(unitId)}`
+                );
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        result.message || "Blood unit not found."
+                    );
+                }
+
+                const bloodUnit = result.bloodUnit;
+
+                if (!bloodUnit) {
+                    throw new Error("Tracking information is unavailable.");
+                }
+
+                // Display unit information
+                document.getElementById("unitId").textContent =
+                    bloodUnit.unitId || "-";
+
+                document.getElementById("bloodGroup").textContent =
+                    bloodUnit.bloodGroup || "-";
+
+                document.getElementById("component").textContent =
+                    bloodUnit.component || "-";
+
+                document.getElementById("collectionDate").textContent =
+                    formatDate(bloodUnit.collectionDate);
+
+                document.getElementById("expiryDate").textContent =
+                    formatDate(bloodUnit.expiryDate);
+
+                // Display status
+                const statusElement =
+                    document.getElementById("unitStatus");
+
+                const status = bloodUnit.status || "Unknown";
+
+                statusElement.textContent = status;
+
+                statusElement.className =
+                    "status " + status.toLowerCase().replace(/\s+/g, "-");
+
+                // Show tracking details
+                loadingMessage.hidden = true;
+                errorMessage.hidden = true;
+                trackingDetails.hidden = false;
+
+            } catch (error) {
+
+                console.error("Tracking error:", error);
+
+                showError(error.message);
+            }
+        }
+
+        // ==============================
+        // INITIALIZE PAGE
+        // ==============================
+
+        loadTrackingDetails();
+    </script>
+
+</body>
+</html>

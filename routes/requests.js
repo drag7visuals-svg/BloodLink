@@ -11,6 +11,20 @@ const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 
 // ==============================
+// POPULATE REQUEST DETAILS
+// ==============================
+
+function populateRequest(query) {
+    return query
+        .populate("hospital", "name email")
+        .populate("bloodBank", "name email")
+        .populate(
+            "allocatedUnits",
+            "unitId bloodGroup component status expiryDate"
+        );
+}
+
+// ==============================
 // CREATE BLOOD REQUEST
 // HOSPITAL ONLY
 // ==============================
@@ -77,7 +91,6 @@ router.post(
                 });
             }
 
-            // Check whether selected Blood Bank exists
             const bloodBank = await User.findOne({
                 _id: bloodBankId,
                 role: "bloodbank",
@@ -90,7 +103,6 @@ router.post(
                 });
             }
 
-            // Check available inventory
             const availableUnits = await BloodUnit.countDocuments({
                 registeredBy: bloodBank._id,
                 bloodGroup,
@@ -105,7 +117,6 @@ router.post(
                 });
             }
 
-            // Generate request ID
             const requestId =
                 "REQ-" + Date.now() + "-" +
                 Math.floor(1000 + Math.random() * 9000);
@@ -155,14 +166,9 @@ router.get(
                 filter.bloodBank = req.user.userId;
             }
 
-            const requests = await BloodRequest.find(filter)
-                .populate("hospital", "name email")
-                .populate("bloodBank", "name email")
-                .populate(
-                    "allocatedUnits",
-                    "unitId bloodGroup component status expiryDate"
-                )
-                .sort({ createdAt: -1 });
+            const requests = await populateRequest(
+                BloodRequest.find(filter)
+            ).sort({ createdAt: -1 });
 
             res.json(requests);
 
@@ -214,9 +220,7 @@ router.patch(
                     {
                         new: true
                     }
-                )
-                .populate("hospital", "name email")
-                .populate("bloodBank", "name email");
+                );
 
                 if (!rejectedRequest) {
                     return res.status(404).json({
@@ -226,12 +230,13 @@ router.patch(
 
                 return res.json({
                     message: "Blood request rejected successfully.",
-                    request: rejectedRequest
+                    request: await populateRequest(
+                        BloodRequest.findById(rejectedRequest._id)
+                    )
                 });
             }
 
             // APPROVE REQUEST
-            // Claim the request to prevent duplicate approvals
             claimedRequest = await BloodRequest.findOneAndUpdate(
                 {
                     requestId: req.params.requestId,
@@ -254,7 +259,7 @@ router.patch(
                 });
             }
 
-            // Find matching available blood units
+            // FIND MATCHING AVAILABLE UNITS
             const candidates = await BloodUnit.find({
                 registeredBy: req.user.userId,
                 bloodGroup: claimedRequest.bloodGroup,
@@ -268,7 +273,7 @@ router.patch(
             })
             .select("_id");
 
-            // Reserve each unit using an atomic update
+            // RESERVE UNITS
             for (const candidate of candidates) {
                 if (reservedUnitIds.length >= claimedRequest.quantity) {
                     break;
@@ -297,7 +302,7 @@ router.patch(
                 }
             }
 
-            // Roll back if insufficient inventory
+            // ROLLBACK IF INSUFFICIENT INVENTORY
             if (reservedUnitIds.length < claimedRequest.quantity) {
                 await BloodUnit.updateMany(
                     {
@@ -331,7 +336,7 @@ router.patch(
                 });
             }
 
-            // Complete approval
+            // COMPLETE APPROVAL
             const approvedRequest = await BloodRequest.findOneAndUpdate(
                 {
                     _id: claimedRequest._id,
@@ -346,12 +351,6 @@ router.patch(
                 {
                     new: true
                 }
-            )
-            .populate("hospital", "name email")
-            .populate("bloodBank", "name email")
-            .populate(
-                "allocatedUnits",
-                "unitId bloodGroup component status expiryDate"
             );
 
             if (!approvedRequest) {
@@ -360,13 +359,14 @@ router.patch(
 
             res.json({
                 message: "Request approved and blood units reserved successfully.",
-                request: approvedRequest
+                request: await populateRequest(
+                    BloodRequest.findById(approvedRequest._id)
+                )
             });
 
         } catch (error) {
             console.error("Request decision error:", error);
 
-            // Release units if approval failed
             if (reservedUnitIds.length > 0 && claimedRequest) {
                 await BloodUnit.updateMany(
                     {
@@ -382,7 +382,6 @@ router.patch(
                 );
             }
 
-            // Restore request to Pending if still processing
             if (claimedRequest) {
                 await BloodRequest.updateOne(
                     {
@@ -400,6 +399,267 @@ router.patch(
 
             res.status(500).json({
                 message: "Unable to process the blood request."
+            });
+        }
+    }
+);
+
+// ==============================
+// DISPATCH BLOOD UNITS
+// BLOOD BANK ONLY
+// ==============================
+
+router.patch(
+    "/:requestId/dispatch",
+    protect,
+    authorize("bloodbank"),
+    async (req, res) => {
+        try {
+            const bloodRequest = await BloodRequest.findOne({
+                requestId: req.params.requestId,
+                bloodBank: req.user.userId,
+                status: "Approved"
+            });
+
+            if (!bloodRequest) {
+                return res.status(404).json({
+                    message: "Approved request not found."
+                });
+            }
+
+            if (
+                bloodRequest.allocatedUnits.length !==
+                bloodRequest.quantity
+            ) {
+                return res.status(409).json({
+                    message: "Allocated unit count does not match the requested quantity."
+                });
+            }
+
+            const units = await BloodUnit.find({
+                _id: { $in: bloodRequest.allocatedUnits },
+                registeredBy: req.user.userId,
+                reservedForRequest: bloodRequest._id,
+                status: "Reserved",
+                expiryDate: { $gt: new Date() }
+            }).select("_id");
+
+            if (units.length !== bloodRequest.quantity) {
+                return res.status(409).json({
+                    message: "Some reserved units are unavailable or expired. Dispatch cannot proceed."
+                });
+            }
+
+            const updateResult = await BloodUnit.updateMany(
+                {
+                    _id: { $in: bloodRequest.allocatedUnits },
+                    registeredBy: req.user.userId,
+                    reservedForRequest: bloodRequest._id,
+                    status: "Reserved",
+                    expiryDate: { $gt: new Date() }
+                },
+                {
+                    $set: {
+                        status: "Dispatched"
+                    }
+                }
+            );
+
+            if (updateResult.modifiedCount !== bloodRequest.quantity) {
+                await BloodUnit.updateMany(
+                    {
+                        _id: { $in: bloodRequest.allocatedUnits },
+                        reservedForRequest: bloodRequest._id,
+                        status: "Dispatched"
+                    },
+                    {
+                        $set: {
+                            status: "Reserved"
+                        }
+                    }
+                );
+
+                return res.status(409).json({
+                    message: "Unable to dispatch all allocated units."
+                });
+            }
+
+            const updatedRequest = await BloodRequest.findOneAndUpdate(
+                {
+                    _id: bloodRequest._id,
+                    status: "Approved"
+                },
+                {
+                    $set: {
+                        status: "Dispatched"
+                    }
+                },
+                {
+                    new: true
+                }
+            );
+
+            if (!updatedRequest) {
+                await BloodUnit.updateMany(
+                    {
+                        _id: { $in: bloodRequest.allocatedUnits },
+                        reservedForRequest: bloodRequest._id,
+                        status: "Dispatched"
+                    },
+                    {
+                        $set: {
+                            status: "Reserved"
+                        }
+                    }
+                );
+
+                return res.status(409).json({
+                    message: "Request status changed before dispatch could be completed."
+                });
+            }
+
+            res.json({
+                message: "Blood units dispatched successfully.",
+                request: await populateRequest(
+                    BloodRequest.findById(updatedRequest._id)
+                )
+            });
+
+        } catch (error) {
+            console.error("Dispatch blood units error:", error);
+
+            res.status(500).json({
+                message: "Unable to dispatch blood units."
+            });
+        }
+    }
+);
+
+// ==============================
+// CONFIRM BLOOD RECEIPT
+// HOSPITAL ONLY
+// ==============================
+
+router.patch(
+    "/:requestId/receive",
+    protect,
+    authorize("hospital"),
+    async (req, res) => {
+        try {
+            const bloodRequest = await BloodRequest.findOne({
+                requestId: req.params.requestId,
+                hospital: req.user.userId,
+                status: "Dispatched"
+            });
+
+            if (!bloodRequest) {
+                return res.status(404).json({
+                    message: "Dispatched request not found."
+                });
+            }
+
+            if (
+                bloodRequest.allocatedUnits.length !==
+                bloodRequest.quantity
+            ) {
+                return res.status(409).json({
+                    message: "Allocated unit count does not match the requested quantity."
+                });
+            }
+
+            const units = await BloodUnit.find({
+                _id: { $in: bloodRequest.allocatedUnits },
+                registeredBy: bloodRequest.bloodBank,
+                reservedForRequest: bloodRequest._id,
+                status: "Dispatched"
+            }).select("_id");
+
+            if (units.length !== bloodRequest.quantity) {
+                return res.status(409).json({
+                    message: "Some dispatched units are unavailable. Receipt cannot be confirmed."
+                });
+            }
+
+            const updateResult = await BloodUnit.updateMany(
+                {
+                    _id: { $in: bloodRequest.allocatedUnits },
+                    registeredBy: bloodRequest.bloodBank,
+                    reservedForRequest: bloodRequest._id,
+                    status: "Dispatched"
+                },
+                {
+                    $set: {
+                        status: "Received"
+                    }
+                }
+            );
+
+            if (updateResult.modifiedCount !== bloodRequest.quantity) {
+                await BloodUnit.updateMany(
+                    {
+                        _id: { $in: bloodRequest.allocatedUnits },
+                        reservedForRequest: bloodRequest._id,
+                        status: "Received"
+                    },
+                    {
+                        $set: {
+                            status: "Dispatched"
+                        }
+                    }
+                );
+
+                return res.status(409).json({
+                    message: "Unable to confirm receipt of all allocated units."
+                });
+            }
+
+            const updatedRequest = await BloodRequest.findOneAndUpdate(
+                {
+                    _id: bloodRequest._id,
+                    hospital: req.user.userId,
+                    status: "Dispatched"
+                },
+                {
+                    $set: {
+                        status: "Received"
+                    }
+                },
+                {
+                    new: true
+                }
+            );
+
+            if (!updatedRequest) {
+                await BloodUnit.updateMany(
+                    {
+                        _id: { $in: bloodRequest.allocatedUnits },
+                        reservedForRequest: bloodRequest._id,
+                        status: "Received"
+                    },
+                    {
+                        $set: {
+                            status: "Dispatched"
+                        }
+                    }
+                );
+
+                return res.status(409).json({
+                    message: "Request status changed before receipt could be confirmed."
+                });
+            }
+
+            res.json({
+                message: "Blood receipt confirmed successfully.",
+                request: await populateRequest(
+                    BloodRequest.findById(updatedRequest._id)
+                )
+            });
+
+        } catch (error) {
+            console.error("Confirm blood receipt error:", error);
+
+            res.status(500).json({
+                message: "Unable to confirm blood receipt."
             });
         }
     }

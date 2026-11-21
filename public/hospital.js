@@ -1,7 +1,7 @@
 
-// ==============================
-// ELEMENTS
-// ==============================
+ // ==============================
+ // ELEMENTS
+ // ==============================
 
 const hospitalName = document.getElementById("hospitalName");
 const hospitalEmail = document.getElementById("hospitalEmail");
@@ -21,6 +21,7 @@ const logoutButton = document.getElementById("logoutButton");
 const themeToggle = document.getElementById("themeToggle");
 
 let hospitalRequests = [];
+let processingRequest = false;
 
 // ==============================
 // LOAD HOSPITAL SESSION
@@ -208,7 +209,7 @@ requestForm.addEventListener("submit", async (event) => {
 async function loadHospitalRequests() {
     requestTable.innerHTML = `
         <tr>
-            <td colspan="7">Loading requests...</td>
+            <td colspan="8">Loading requests...</td>
         </tr>
     `;
 
@@ -235,7 +236,7 @@ async function loadHospitalRequests() {
 
         requestTable.innerHTML = `
             <tr>
-                <td colspan="7">Unable to load requests.</td>
+                <td colspan="8">Unable to load requests.</td>
             </tr>
         `;
 
@@ -252,16 +253,31 @@ function displayHospitalRequests() {
     if (hospitalRequests.length === 0) {
         requestTable.innerHTML = `
             <tr>
-                <td colspan="7">You have not submitted any requests.</td>
+                <td colspan="8">You have not submitted any requests.</td>
             </tr>
         `;
         return;
     }
 
     requestTable.innerHTML = hospitalRequests.map(request => {
+
         const requestDate = request.createdAt
             ? new Date(request.createdAt).toLocaleDateString()
             : "N/A";
+
+        let actions = "-";
+
+        if (request.status === "Dispatched") {
+            actions = `
+                <button
+                    class="primary-button"
+                    onclick="confirmBloodReceipt('${escapeHTML(request.requestId)}')"
+                    ${processingRequest ? "disabled" : ""}
+                >
+                    Confirm Receipt
+                </button>
+            `;
+        }
 
         return `
             <tr>
@@ -284,9 +300,76 @@ function displayHospitalRequests() {
                         ${escapeHTML(request.status)}
                     </span>
                 </td>
+
+                <td>${actions}</td>
             </tr>
         `;
     }).join("");
+}
+
+// ==============================
+// CONFIRM BLOOD RECEIPT
+// ==============================
+
+async function confirmBloodReceipt(requestId) {
+
+    if (processingRequest) {
+        return;
+    }
+
+    const confirmed = confirm(
+        `Confirm that your hospital has received the blood units for ${requestId}?`
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    processingRequest = true;
+
+    displayHospitalRequests();
+
+    historyMessage.textContent = "Confirming blood receipt...";
+    historyMessage.className = "message info";
+
+    try {
+
+        const response = await fetch(
+            `/api/requests/${encodeURIComponent(requestId)}/receive`,
+            {
+                method: "PATCH",
+                credentials: "include"
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.message || "Unable to confirm receipt."
+            );
+        }
+
+        historyMessage.textContent =
+            data.message || "Blood receipt confirmed successfully.";
+
+        historyMessage.className = "message success";
+
+        await loadHospitalRequests();
+
+    } catch (error) {
+
+        console.error("Confirm receipt error:", error);
+
+        historyMessage.textContent = error.message;
+        historyMessage.className = "message error";
+
+    } finally {
+
+        processingRequest = false;
+
+        displayHospitalRequests();
+    }
 }
 
 // ==============================

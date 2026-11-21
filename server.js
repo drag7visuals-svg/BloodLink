@@ -19,6 +19,8 @@ const User = require("./models/User");
 
 const authRoutes = require("./routes/auth");
 const requestRoutes = require("./routes/requests");
+const expiryRoutes = require("./routes/expiry");
+const trackingRoutes = require("./routes/tracking");
 
 const { protect, authorize } = require("./middleware/auth");
 
@@ -74,6 +76,12 @@ app.use("/api/auth", authLimiter, authRoutes);
 
 // Blood request routes
 app.use("/api/requests", requestRoutes);
+
+// Blood expiry alert routes
+app.use("/api/expiry-alerts", expiryRoutes);
+
+// Public blood unit tracking routes
+app.use("/api/tracking", trackingRoutes);
 
 // ==============================
 // MONGODB CONNECTION
@@ -185,6 +193,32 @@ function getOwnershipFilter(req) {
 }
 
 // ==============================
+// GET REGISTERED DONORS
+// Admin and Blood Bank only
+// ==============================
+
+app.get(
+    "/api/donors",
+    protect,
+    authorize("admin", "bloodbank"),
+    async (req, res) => {
+        try {
+            const donors = await User.find({
+                role: "donor",
+                isActive: true
+            }).select("_id name email");
+
+            res.json(donors);
+
+        } catch (error) {
+            res.status(500).json({
+                message: error.message
+            });
+        }
+    }
+);
+
+// ==============================
 // REGISTER A BLOOD UNIT
 // Admin and Blood Bank only
 // ==============================
@@ -200,7 +234,8 @@ app.post(
                 bloodGroup,
                 component,
                 collectionDate,
-                expiryDate
+                expiryDate,
+                donorId
             } = req.body;
 
             if (
@@ -233,6 +268,29 @@ app.post(
                 });
             }
 
+            // Validate selected donor
+            let donor = null;
+
+            if (donorId) {
+                if (!mongoose.Types.ObjectId.isValid(donorId)) {
+                    return res.status(400).json({
+                        message: "Invalid donor ID."
+                    });
+                }
+
+                donor = await User.findOne({
+                    _id: donorId,
+                    role: "donor",
+                    isActive: true
+                });
+
+                if (!donor) {
+                    return res.status(400).json({
+                        message: "Invalid or inactive donor selected."
+                    });
+                }
+            }
+
             const bloodUnit = new BloodUnit({
                 unitId,
                 bloodGroup,
@@ -244,7 +302,9 @@ app.post(
                 registeredBy:
                     req.user.role === "bloodbank"
                         ? req.user.userId
-                        : null
+                        : null,
+
+                donor: donor ? donor._id : null
             });
 
             await bloodUnit.save();
@@ -256,6 +316,31 @@ app.post(
 
         } catch (error) {
             res.status(400).json({
+                message: error.message
+            });
+        }
+    }
+);
+
+// ==============================
+// DONOR'S DONATION HISTORY
+// Donor only
+// ==============================
+
+app.get(
+    "/api/donor/donations",
+    protect,
+    authorize("donor"),
+    async (req, res) => {
+        try {
+            const donations = await BloodUnit.find({
+                donor: req.user.userId
+            }).sort({ collectionDate: -1 });
+
+            res.json(donations);
+
+        } catch (error) {
+            res.status(500).json({
                 message: error.message
             });
         }

@@ -61,6 +61,14 @@ const bloodUnitSchema = new mongoose.Schema(
             index: true
         },
 
+        // Donor who donated this blood unit
+        donor: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+            index: true
+        },
+
         // Blood request associated with this reserved unit
         reservedForRequest: {
             type: mongoose.Schema.Types.ObjectId,

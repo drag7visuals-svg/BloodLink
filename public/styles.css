@@ -141,7 +141,7 @@ body {
 /* Sections */
 
 section {
-    margin-bottom: 30px;
+    margin-bottom: 35px;
     scroll-margin-top: 25px;
 }
 
@@ -160,6 +160,7 @@ section {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 18px;
+    margin-bottom: 22px;
 }
 
 .stat-card {
@@ -186,6 +187,7 @@ section {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     padding: 25px;
+    margin-top: 0;
 }
 
 /* Forms */
@@ -741,5 +743,98 @@ body.dark .login-brand p {
 
     .login-container {
         padding: 25px 20px;
+    }
+}
+
+/* ==============================
+   DASHBOARD SPACING FIXES
+============================== */
+
+/* Add spacing below dashboard statistic cards */
+.stats-grid {
+    margin-bottom: 22px;
+}
+
+/* Balance two-card statistic sections */
+.stats-grid:has(.stat-card:nth-child(2):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 540px;
+}
+
+/* Keep dashboard cards aligned */
+.content-card {
+    margin-top: 0;
+}
+
+/* Improve spacing between dashboard sections */
+section {
+    margin-bottom: 35px;
+}
+
+/* Responsive adjustment for two-card sections */
+@media (max-width: 700px) {
+    .stats-grid:has(.stat-card:nth-child(2):last-child) {
+        grid-template-columns: 1fr;
+        max-width: 100%;
+    }
+}
+
+
+/* ==============================
+   EXPIRY PANEL SPACING
+============================== */
+
+.content-card + .content-card {
+    margin-top: 18px;
+}
+
+/* Give expiry panels consistent internal spacing */
+.content-card {
+    padding: 26px;
+}
+
+/* Improve table spacing inside expiry panels */
+.content-card .table-container {
+    margin-top: 14px;
+}
+
+/* ==============================
+   SIDEBAR HOVER AND ACTIVE STATES
+============================== */
+
+/* Actual active page */
+.sidebar nav a.active {
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+/* Hover on other navigation items */
+.sidebar nav a:hover:not(.active) {
+    background: #f3f4f6;
+    color: #b91c1c;
+}
+
+/* Dark mode */
+body.dark .sidebar nav a.active {
+    background: #3a2528;
+    color: #ff7777;
+}
+
+body.dark .sidebar nav a:hover:not(.active) {
+    background: #292d34;
+    color: #ff9999;
+}
+
+/* ==============================
+   EXPIRY SECTION RESPONSIVENESS
+============================== */
+
+@media (max-width: 700px) {
+    .content-card {
+        padding: 18px;
+    }
+
+    .content-card + .content-card {
+        margin-top: 14px;
     }
 }

@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Donor Registration | BloodLink</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+    <main class="login-page">
+
+        <div class="login-container">
+
+            <div class="login-brand">
+                <div class="brand-icon">B</div>
+                <h1>BloodLink</h1>
+                <p>Donor Registration</p>
+            </div>
+
+            <form id="registerForm" class="login-form">
+
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input
+                        type="text"
+                        id="name"
+                        placeholder="Enter your full name"
+                        autocomplete="name"
+                        maxlength="100"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input
+                        type="email"
+                        id="email"
+                        placeholder="Enter your email"
+                        autocomplete="email"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        placeholder="Minimum 8 characters"
+                        autocomplete="new-password"
+                        minlength="8"
+                        required
+                    >
+                </div>
+
+                <button
+                    type="submit"
+                    class="primary-button"
+                    id="registerButton"
+                >
+                    Create Donor Account
+                </button>
+
+                <p id="registerMessage" class="message" role="status"></p>
+
+            </form>
+
+            <div class="login-footer">
+                <p>Already registered?
+                    <a href="/login.html">Log in</a>
+                </p>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script src="/register.js"></script>
+
+</body>
+</html>

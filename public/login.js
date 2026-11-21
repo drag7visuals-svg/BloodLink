@@ -44,7 +44,9 @@ loginForm.addEventListener("submit", async (event) => {
         const destination = dashboards[data.user.role];
 
         if (!destination) {
-            throw new Error("Your account does not have a valid dashboard.");
+            throw new Error(
+                "Your account does not have a valid dashboard."
+            );
         }
 
         loginMessage.textContent = "Login successful. Redirecting...";

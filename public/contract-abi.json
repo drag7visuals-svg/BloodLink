@@ -15,12 +15,12 @@
 	{
 		"inputs": [
 			{
-				"internalType": "string",
-				"name": "unitId",
-				"type": "string"
+				"internalType": "address",
+				"name": "hospital",
+				"type": "address"
 			}
 		],
-		"name": "registerBloodUnit",
+		"name": "authorizeHospital",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -29,6 +29,25 @@
 		"inputs": [],
 		"stateMutability": "nonpayable",
 		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "bank",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "bool",
+				"name": "authorized",
+				"type": "bool"
+			}
+		],
+		"name": "BankAuthorizationUpdated",
+		"type": "event"
 	},
 	{
 		"anonymous": false,
@@ -54,13 +73,71 @@
 		"inputs": [
 			{
 				"indexed": false,
+				"internalType": "address",
+				"name": "hospital",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "bool",
+				"name": "authorized",
+				"type": "bool"
+			}
+		],
+		"name": "HospitalAuthorizationUpdated",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "unitId",
+				"type": "string"
+			}
+		],
+		"name": "registerBloodUnit",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "bank",
+				"type": "address"
+			}
+		],
+		"name": "revokeBank",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "hospital",
+				"type": "address"
+			}
+		],
+		"name": "revokeHospital",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
 				"internalType": "string",
 				"name": "unitId",
 				"type": "string"
 			},
 			{
 				"indexed": false,
-				"internalType": "enum BloodLink.Status",
+				"internalType": "enum BloodLinkV2.Status",
 				"name": "newStatus",
 				"type": "uint8"
 			},
@@ -82,7 +159,7 @@
 				"type": "string"
 			},
 			{
-				"internalType": "enum BloodLink.Status",
+				"internalType": "enum BloodLinkV2.Status",
 				"name": "newStatus",
 				"type": "uint8"
 			}
@@ -114,6 +191,25 @@
 	{
 		"inputs": [
 			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "authorizedHospitals",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
 				"internalType": "string",
 				"name": "",
 				"type": "string"
@@ -127,7 +223,7 @@
 				"type": "string"
 			},
 			{
-				"internalType": "enum BloodLink.Status",
+				"internalType": "enum BloodLinkV2.Status",
 				"name": "status",
 				"type": "uint8"
 			},
@@ -156,7 +252,7 @@
 				"type": "string"
 			},
 			{
-				"internalType": "enum BloodLink.Status",
+				"internalType": "enum BloodLinkV2.Status",
 				"name": "",
 				"type": "uint8"
 			}
