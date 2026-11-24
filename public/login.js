@@ -6,6 +6,10 @@ const loginButton = document.getElementById("loginButton");
 loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
+    if (loginButton.disabled) {
+        return;
+    }
+
     const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
 
@@ -28,10 +32,20 @@ loginForm.addEventListener("submit", async (event) => {
             })
         });
 
-        const data = await response.json();
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error("Invalid server response. Please try again.");
+        }
 
         if (!response.ok) {
             throw new Error(data.message || "Login failed.");
+        }
+
+        if (!data.user || !data.user.role) {
+            throw new Error("Invalid login response from server.");
         }
 
         const dashboards = {
@@ -52,10 +66,12 @@ loginForm.addEventListener("submit", async (event) => {
         loginMessage.textContent = "Login successful. Redirecting...";
         loginMessage.classList.add("success");
 
-        window.location.href = destination;
+        window.location.replace(destination);
 
     } catch (error) {
-        loginMessage.textContent = error.message;
+        loginMessage.textContent =
+            error.message || "Something went wrong. Please try again.";
+
         loginMessage.classList.add("error");
 
         loginButton.disabled = false;

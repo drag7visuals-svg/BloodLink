@@ -11,7 +11,7 @@ const refreshRequestsButton = document.getElementById("refreshRequestsButton");
 let bloodRequests = [];
 let processingRequest = false;
 
-// Detect dashboard role (case-insensitive)
+// Detect dashboard role
 const currentPage = window.location.pathname.toLowerCase();
 
 const currentRole = currentPage.includes("bloodbank")
@@ -27,6 +27,18 @@ const REQUEST_CHAIN_STATUS = {
     Dispatched: 4,
     Received: 5
 };
+
+// ==============================
+// HELPER FUNCTIONS
+// ==============================
+
+async function readRequestJson(response) {
+    try {
+        return await response.json();
+    } catch {
+        return {};
+    }
+}
 
 // ==============================
 // ENSURE AUTHORIZED BANK WALLET
@@ -91,8 +103,13 @@ async function getChainUnitStatus(contract, unitId) {
         return Number(result[1]);
 
     } catch (error) {
+        console.error(
+            `Blockchain lookup failed for ${unitId}:`,
+            error
+        );
+
         throw new Error(
-            `Blood unit ${unitId} was not found on blockchain.`
+            `Unable to retrieve blood unit ${unitId} from blockchain.`
         );
     }
 }
@@ -114,7 +131,10 @@ async function updateChainUnit(
 
     // Transaction already completed earlier
     if (currentStatus === targetStatus) {
-        console.log(`${unitId} already has blockchain status ${targetStatus}`);
+        console.log(
+            `${unitId} already has blockchain status ${targetStatus}`
+        );
+
         return;
     }
 
@@ -135,7 +155,13 @@ async function updateChainUnit(
         "info"
     );
 
-    await transaction.wait();
+    const receipt = await transaction.wait();
+
+    if (!receipt || Number(receipt.status) !== 1) {
+        throw new Error(
+            `Blockchain transaction failed for ${unitId}.`
+        );
+    }
 
     console.log(
         `Blockchain updated: ${unitId} -> ${targetStatus}`
@@ -243,24 +269,44 @@ async function synchronizeDispatch(request) {
 // ==============================
 
 async function loadRequests() {
-    requestTable.innerHTML = `
-        <tr>
-            <td colspan="10">Loading requests...</td>
-        </tr>
-    `;
+    if (!requestTable) {
+        showRequestMessage(
+            "Request table was not found on this page.",
+            "error"
+        );
+
+        return;
+    }
+
+    const loadingRow = document.createElement("tr");
+    const loadingCell = document.createElement("td");
+
+    loadingCell.colSpan = 10;
+    loadingCell.textContent = "Loading requests...";
+
+    loadingRow.appendChild(loadingCell);
+
+    requestTable.replaceChildren(loadingRow);
 
     try {
         const response = await fetch("/api/requests", {
             method: "GET",
-            credentials: "include"
+            credentials: "include",
+            headers: {
+                "Accept": "application/json"
+            }
         });
 
-        const data = await response.json();
+        const data = await readRequestJson(response);
 
         if (!response.ok) {
             throw new Error(
                 data.message || "Unable to load requests."
             );
+        }
+
+        if (!Array.isArray(data)) {
+            throw new Error("Invalid request response.");
         }
 
         bloodRequests = data;
@@ -270,14 +316,30 @@ async function loadRequests() {
     } catch (error) {
         console.error("Load requests error:", error);
 
-        requestTable.innerHTML = `
-            <tr>
-                <td colspan="10">Unable to load blood requests.</td>
-            </tr>
-        `;
+        const errorRow = document.createElement("tr");
+        const errorCell = document.createElement("td");
+
+        errorCell.colSpan = 10;
+        errorCell.textContent = "Unable to load blood requests.";
+
+        errorRow.appendChild(errorCell);
+
+        requestTable.replaceChildren(errorRow);
 
         showRequestMessage(error.message, "error");
     }
+}
+
+// ==============================
+// CREATE TABLE CELL
+// ==============================
+
+function createRequestCell(value) {
+    const cell = document.createElement("td");
+
+    cell.textContent = value ?? "N/A";
+
+    return cell;
 }
 
 // ==============================
@@ -285,118 +347,161 @@ async function loadRequests() {
 // ==============================
 
 function displayRequests() {
+    if (!requestTable) return;
+
+    requestTable.replaceChildren();
+
     if (bloodRequests.length === 0) {
-        requestTable.innerHTML = `
-            <tr>
-                <td colspan="10">No hospital requests found.</td>
-            </tr>
-        `;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 10;
+        cell.textContent = "No hospital requests found.";
+
+        row.appendChild(cell);
+        requestTable.appendChild(row);
+
         return;
     }
 
-    requestTable.innerHTML = bloodRequests.map(request => {
+    bloodRequests.forEach(request => {
+        const row = document.createElement("tr");
 
-        const hospitalName = escapeRequestText(
-            request.hospital?.name || "Unknown Hospital"
-        );
+        const hospitalName =
+            request.hospital?.name || "Unknown Hospital";
 
-        const hospitalEmail = escapeRequestText(
-            request.hospital?.email || "N/A"
-        );
+        const hospitalEmail =
+            request.hospital?.email || "N/A";
 
-        const message = escapeRequestText(
-            request.message || "No message"
-        );
+        const requestMessage =
+            request.message || "No message";
 
-        const status = escapeRequestText(
-            request.status || "Unknown"
-        );
+        const requestStatus =
+            request.status || "Unknown";
 
         const requestDate = request.createdAt
-            ? new Date(request.createdAt).toLocaleDateString()
+            ? new Date(request.createdAt).toLocaleDateString("en-IN")
             : "N/A";
 
-        const safeRequestId = escapeRequestText(
-            request.requestId
+        const quantity = Number(request.quantity);
+
+        row.appendChild(
+            createRequestCell(request.requestId)
         );
 
-        let actions = "-";
+        row.appendChild(
+            createRequestCell(hospitalName)
+        );
+
+        row.appendChild(
+            createRequestCell(hospitalEmail)
+        );
+
+        row.appendChild(
+            createRequestCell(request.bloodGroup)
+        );
+
+        row.appendChild(
+            createRequestCell(request.component)
+        );
+
+        row.appendChild(
+            createRequestCell(
+                Number.isFinite(quantity) ? quantity : "N/A"
+            )
+        );
+
+        row.appendChild(
+            createRequestCell(requestMessage)
+        );
+
+        row.appendChild(
+            createRequestCell(requestDate)
+        );
+
+        // Status cell
+        const statusCell = document.createElement("td");
+        const statusElement = document.createElement("span");
+
+        statusElement.className =
+            "request-status " +
+            getRequestStatusClass(requestStatus);
+
+        statusElement.textContent = requestStatus;
+
+        statusCell.appendChild(statusElement);
+        row.appendChild(statusCell);
+
+        // Action cell
+        const actionCell = document.createElement("td");
 
         if (
             currentRole === "bloodbank" &&
             request.status === "Pending"
         ) {
-            actions = `
-                <button
-                    class="primary-button"
-                    onclick="updateRequestStatus('${safeRequestId}', 'approve')"
-                    ${processingRequest ? "disabled" : ""}
-                >
-                    Approve
-                </button>
+            const approveButton = document.createElement("button");
 
-                <button
-                    class="secondary-button"
-                    onclick="updateRequestStatus('${safeRequestId}', 'reject')"
-                    ${processingRequest ? "disabled" : ""}
-                >
-                    Reject
-                </button>
-            `;
-        }
+            approveButton.type = "button";
+            approveButton.className = "primary-button";
+            approveButton.textContent = "Approve";
+            approveButton.disabled = processingRequest;
 
-        else if (
+            approveButton.addEventListener("click", () => {
+                updateRequestStatus(
+                    request.requestId,
+                    "approve"
+                );
+            });
+
+            const rejectButton = document.createElement("button");
+
+            rejectButton.type = "button";
+            rejectButton.className = "secondary-button";
+            rejectButton.textContent = "Reject";
+            rejectButton.disabled = processingRequest;
+
+            rejectButton.addEventListener("click", () => {
+                updateRequestStatus(
+                    request.requestId,
+                    "reject"
+                );
+            });
+
+            actionCell.appendChild(approveButton);
+            actionCell.appendChild(rejectButton);
+
+        } else if (
             currentRole === "bloodbank" &&
             request.status === "Approved"
         ) {
-            actions = `
-                <button
-                    class="primary-button"
-                    onclick="processRequestAction('${safeRequestId}', 'dispatch')"
-                    ${processingRequest ? "disabled" : ""}
-                >
-                    Dispatch Units
-                </button>
-            `;
+            const dispatchButton = document.createElement("button");
+
+            dispatchButton.type = "button";
+            dispatchButton.className = "primary-button";
+            dispatchButton.textContent = "Dispatch Units";
+            dispatchButton.disabled = processingRequest;
+
+            dispatchButton.addEventListener("click", () => {
+                processRequestAction(
+                    request.requestId,
+                    "dispatch"
+                );
+            });
+
+            actionCell.appendChild(dispatchButton);
         }
 
-        else if (
-            currentRole === "hospital" &&
-            request.status === "Dispatched"
-        ) {
-            actions = `
-                <button
-                    class="primary-button"
-                    onclick="processRequestAction('${safeRequestId}', 'receive')"
-                    ${processingRequest ? "disabled" : ""}
-                >
-                    Confirm Receipt
-                </button>
-            `;
+        // Hospital receipt confirmation is handled by hospital.js.
+        // Do not create a nonfunctional receipt button here.
+
+        if (!actionCell.hasChildNodes()) {
+            actionCell.textContent = "-";
         }
 
-        return `
-            <tr>
-                <td>${safeRequestId}</td>
-                <td>${hospitalName}</td>
-                <td>${hospitalEmail}</td>
-                <td>${escapeRequestText(request.bloodGroup)}</td>
-                <td>${escapeRequestText(request.component)}</td>
-                <td>${Number(request.quantity)}</td>
-                <td>${message}</td>
-                <td>${requestDate}</td>
+        row.appendChild(actionCell);
 
-                <td>
-                    <span class="request-status ${getRequestStatusClass(request.status)}">
-                        ${status}
-                    </span>
-                </td>
-
-                <td>${actions}</td>
-            </tr>
-        `;
-
-    }).join("");
+        requestTable.appendChild(row);
+    });
 }
 
 // ==============================
@@ -404,8 +509,14 @@ function displayRequests() {
 // ==============================
 
 async function updateRequestStatus(requestId, decision) {
-
     if (processingRequest) {
+        return;
+    }
+
+    if (
+        currentRole !== "bloodbank" ||
+        !["approve", "reject"].includes(decision)
+    ) {
         return;
     }
 
@@ -428,7 +539,6 @@ async function updateRequestStatus(requestId, decision) {
     );
 
     try {
-
         // Check wallet before approving in MongoDB
         if (decision === "approve") {
             await ensureBankWallet();
@@ -448,7 +558,7 @@ async function updateRequestStatus(requestId, decision) {
             }
         );
 
-        const data = await response.json();
+        const data = await readRequestJson(response);
 
         if (!response.ok) {
             throw new Error(
@@ -458,10 +568,9 @@ async function updateRequestStatus(requestId, decision) {
 
         // Synchronize reservation after MongoDB approval
         if (decision === "approve") {
-
             if (!data.request) {
                 throw new Error(
-                    "Request was approved in MongoDB, but allocated unit details were not returned. Refresh and retry dispatch."
+                    "Request was approved in MongoDB, but allocated unit details were not returned. Refresh and check the request before dispatching."
                 );
             }
 
@@ -474,7 +583,6 @@ async function updateRequestStatus(requestId, decision) {
                 );
 
             } catch (blockchainError) {
-
                 console.error(
                     "Reservation blockchain synchronization error:",
                     blockchainError
@@ -488,7 +596,6 @@ async function updateRequestStatus(requestId, decision) {
             }
 
         } else {
-
             showRequestMessage(
                 data.message || "Request rejected successfully.",
                 "success"
@@ -505,13 +612,13 @@ async function updateRequestStatus(requestId, decision) {
         }
 
     } catch (error) {
-
         console.error("Update request error:", error);
 
         showRequestMessage(error.message, "error");
 
-    } finally {
+        await loadRequests();
 
+    } finally {
         processingRequest = false;
         displayRequests();
     }
@@ -523,13 +630,14 @@ async function updateRequestStatus(requestId, decision) {
 // ==============================
 
 async function dispatchRequest(requestId) {
-
     const request = bloodRequests.find(
         item => item.requestId === requestId
     );
 
     if (!request) {
-        throw new Error("Request not found. Refresh requests and try again.");
+        throw new Error(
+            "Request not found. Refresh requests and try again."
+        );
     }
 
     // First synchronize all units on blockchain
@@ -544,7 +652,7 @@ async function dispatchRequest(requestId) {
         }
     );
 
-    const data = await response.json();
+    const data = await readRequestJson(response);
 
     if (!response.ok) {
         throw new Error(
@@ -558,24 +666,23 @@ async function dispatchRequest(requestId) {
 }
 
 // ==============================
-// DISPATCH OR CONFIRM RECEIPT
+// PROCESS DISPATCH ACTION
 // ==============================
 
 async function processRequestAction(requestId, action) {
-
     if (processingRequest) {
         return;
     }
 
-    const isDispatch = action === "dispatch";
-
-    if (!["dispatch", "receive"].includes(action)) {
+    if (
+        currentRole !== "bloodbank" ||
+        action !== "dispatch"
+    ) {
         return;
     }
 
-    const confirmationMessage = isDispatch
-        ? `Dispatch the allocated units for ${requestId}? This requires blockchain transactions.`
-        : `Confirm that your hospital has received the blood units for ${requestId}? This requires blockchain transactions.`;
+    const confirmationMessage =
+        `Dispatch the allocated units for ${requestId}? This requires blockchain transactions.`;
 
     if (!confirm(confirmationMessage)) {
         return;
@@ -585,52 +692,32 @@ async function processRequestAction(requestId, action) {
     displayRequests();
 
     showRequestMessage(
-        isDispatch
-            ? "Preparing blockchain dispatch..."
-            : "Confirming blood receipt...",
+        "Preparing blockchain dispatch...",
         "info"
     );
 
     try {
-
-        let data;
-
-        if (isDispatch) {
-
-            data = await dispatchRequest(requestId);
-
-        } else {
-
-            // Hospital receipt is handled separately by hospital.js.
-            throw new Error(
-                "Hospital receipt must be processed from the Hospital dashboard."
-            );
-        }
+        const data = await dispatchRequest(requestId);
 
         showRequestMessage(
-            data.message || "Request updated successfully.",
+            data.message || "Request dispatched successfully.",
             "success"
         );
 
         await loadRequests();
 
-        if (
-            isDispatch &&
-            typeof loadInventory === "function"
-        ) {
+        if (typeof loadInventory === "function") {
             await loadInventory();
         }
 
     } catch (error) {
-
-        console.error("Request action error:", error);
+        console.error("Request dispatch error:", error);
 
         showRequestMessage(error.message, "error");
 
         await loadRequests();
 
     } finally {
-
         processingRequest = false;
         displayRequests();
     }
@@ -641,7 +728,6 @@ async function processRequestAction(requestId, action) {
 // ==============================
 
 function getRequestStatusClass(status) {
-
     const statusClasses = {
         "Pending": "pending",
         "Processing": "pending",
@@ -660,44 +746,28 @@ function getRequestStatusClass(status) {
 // REQUEST MESSAGE
 // ==============================
 
-function showRequestMessage(message, type) {
-
+function showRequestMessage(message, type = "") {
     if (!requestMessage) {
         return;
     }
 
     requestMessage.textContent = message;
-    requestMessage.className = "message " + type;
-}
 
-// ==============================
-// ESCAPE HTML
-// ==============================
-
-function escapeRequestText(value) {
-
-    return String(value ?? "").replace(/[&<>"']/g, character => {
-
-        const entities = {
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;"
-        };
-
-        return entities[character];
-    });
+    requestMessage.className = type
+        ? "message " + type
+        : "message";
 }
 
 // ==============================
 // REFRESH BUTTON
 // ==============================
 
-refreshRequestsButton.addEventListener(
-    "click",
-    loadRequests
-);
+if (refreshRequestsButton) {
+    refreshRequestsButton.addEventListener(
+        "click",
+        loadRequests
+    );
+}
 
 // ==============================
 // INITIAL LOAD

@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <meta name="description" content="View registered blood unit tracking information through BloodLink.">
+
     <title>BloodLink | Blood Unit Tracking</title>
 
     <style>
@@ -56,6 +58,7 @@
         .heading p {
             color: #687386;
             font-size: 14px;
+            line-height: 1.5;
         }
 
         .tracking-card {
@@ -105,7 +108,8 @@
             color: #374151;
         }
 
-        .status.available {
+        .status.available,
+        .status.received {
             background: #dcfce7;
             color: #166534;
         }
@@ -117,9 +121,17 @@
             color: #991b1b;
         }
 
-        .status.reserved {
+        .status.reserved,
+        .status.testing-pending,
+        .status.processing {
             background: #fef3c7;
             color: #92400e;
+        }
+
+        .status.dispatched,
+        .status.collected {
+            background: #dbeafe;
+            color: #1e40af;
         }
 
         .details-title {
@@ -167,11 +179,37 @@
             color: #b91c1c;
         }
 
+        .retry-button {
+            display: block;
+            margin: 15px auto 0;
+            padding: 10px 18px;
+            background: #b91c1c;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .retry-button:hover {
+            background: #991b1b;
+        }
+
+        .retry-button:focus-visible {
+            outline: 2px solid #b91c1c;
+            outline-offset: 3px;
+        }
+
         .footer {
             text-align: center;
             margin-top: 30px;
             color: #8992a1;
             font-size: 12px;
+        }
+
+        [hidden] {
+            display: none !important;
         }
 
         @media (max-width: 480px) {
@@ -210,12 +248,20 @@
 
         <div class="tracking-card">
 
-            <div id="loadingMessage" class="message">
+            <div id="loadingMessage" class="message" role="status" aria-live="polite">
                 Retrieving blood unit information...
             </div>
 
-            <div id="errorMessage" class="message error" hidden>
+            <div id="errorMessage" class="message error" role="alert" hidden>
                 Unable to retrieve blood unit information.
+
+                <button
+                    type="button"
+                    id="retryButton"
+                    class="retry-button"
+                >
+                    Try Again
+                </button>
             </div>
 
             <div id="trackingDetails" hidden>
@@ -273,14 +319,6 @@
 
     <script>
         // ==============================
-        // GET BLOOD UNIT ID FROM QR URL
-        // ==============================
-
-        const params = new URLSearchParams(window.location.search);
-
-        const unitId = params.get("unitId");
-
-        // ==============================
         // ELEMENTS
         // ==============================
 
@@ -293,6 +331,16 @@
         const trackingDetails =
             document.getElementById("trackingDetails");
 
+        const retryButton =
+            document.getElementById("retryButton");
+
+        // ==============================
+        // GET BLOOD UNIT ID FROM URL
+        // ==============================
+
+        const params = new URLSearchParams(window.location.search);
+        const unitId = params.get("unitId");
+
         // ==============================
         // FORMAT DATE
         // ==============================
@@ -304,7 +352,7 @@
 
             const date = new Date(dateValue);
 
-            if (isNaN(date.getTime())) {
+            if (Number.isNaN(date.getTime())) {
                 return "Not available";
             }
 
@@ -323,7 +371,42 @@
             loadingMessage.hidden = true;
             trackingDetails.hidden = true;
             errorMessage.hidden = false;
-            errorMessage.textContent = message;
+
+            // Keep the retry button inside the error container.
+            errorMessage.firstChild.textContent = message;
+        }
+
+        // ==============================
+        // DISPLAY LOADING STATE
+        // ==============================
+
+        function showLoading() {
+            loadingMessage.hidden = false;
+            trackingDetails.hidden = true;
+            errorMessage.hidden = true;
+
+            loadingMessage.textContent =
+                "Retrieving blood unit information...";
+        }
+
+        // ==============================
+        // STATUS CLASS
+        // ==============================
+
+        function getStatusClass(status) {
+            const statusClasses = {
+                "Collected": "collected",
+                "Testing Pending": "testing-pending",
+                "Available": "available",
+                "Reserved": "reserved",
+                "Dispatched": "dispatched",
+                "Received": "received",
+                "Rejected": "rejected",
+                "Expired": "expired",
+                "Recalled": "recalled"
+            };
+
+            return statusClasses[status] || "";
         }
 
         // ==============================
@@ -332,18 +415,43 @@
 
         async function loadTrackingDetails() {
 
-            if (!unitId || !unitId.trim()) {
-                showError("No blood unit ID was provided.");
+            const normalizedUnitId =
+                typeof unitId === "string"
+                    ? unitId.trim()
+                    : "";
+
+            if (
+                !normalizedUnitId ||
+                normalizedUnitId.length > 100
+            ) {
+                showError(
+                    "A valid blood unit ID was not provided."
+                );
                 return;
             }
 
-            try {
+            showLoading();
 
+            try {
                 const response = await fetch(
-                    `/api/tracking/${encodeURIComponent(unitId)}`
+                    `/api/tracking/${encodeURIComponent(normalizedUnitId)}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "Accept": "application/json"
+                        }
+                    }
                 );
 
-                const result = await response.json();
+                let result;
+
+                try {
+                    result = await response.json();
+                } catch {
+                    throw new Error(
+                        "The server returned an invalid response."
+                    );
+                }
 
                 if (!response.ok) {
                     throw new Error(
@@ -353,11 +461,20 @@
 
                 const bloodUnit = result.bloodUnit;
 
-                if (!bloodUnit) {
-                    throw new Error("Tracking information is unavailable.");
+                if (
+                    !bloodUnit ||
+                    typeof bloodUnit !== "object" ||
+                    Array.isArray(bloodUnit)
+                ) {
+                    throw new Error(
+                        "Tracking information is unavailable."
+                    );
                 }
 
-                // Display unit information
+                // ==============================
+                // DISPLAY UNIT INFORMATION
+                // ==============================
+
                 document.getElementById("unitId").textContent =
                     bloodUnit.unitId || "-";
 
@@ -373,28 +490,50 @@
                 document.getElementById("expiryDate").textContent =
                     formatDate(bloodUnit.expiryDate);
 
-                // Display status
+                // ==============================
+                // DISPLAY STATUS
+                // ==============================
+
                 const statusElement =
                     document.getElementById("unitStatus");
 
-                const status = bloodUnit.status || "Unknown";
+                const status =
+                    typeof bloodUnit.status === "string"
+                        ? bloodUnit.status
+                        : "Unknown";
 
                 statusElement.textContent = status;
 
                 statusElement.className =
-                    "status " + status.toLowerCase().replace(/\s+/g, "-");
+                    "status " + getStatusClass(status);
 
-                // Show tracking details
+                // ==============================
+                // SHOW TRACKING DETAILS
+                // ==============================
+
                 loadingMessage.hidden = true;
                 errorMessage.hidden = true;
                 trackingDetails.hidden = false;
 
             } catch (error) {
-
                 console.error("Tracking error:", error);
 
-                showError(error.message);
+                showError(
+                    error.message ||
+                    "Unable to retrieve blood unit information."
+                );
             }
+        }
+
+        // ==============================
+        // RETRY BUTTON
+        // ==============================
+
+        if (retryButton) {
+            retryButton.addEventListener(
+                "click",
+                loadTrackingDetails
+            );
         }
 
         // ==============================

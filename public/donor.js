@@ -36,12 +36,14 @@ function updateThemeButton() {
 }
 
 function loadTheme() {
-    const savedTheme =
-        localStorage.getItem("donorTheme") || "light";
+    const savedTheme = localStorage.getItem("donorTheme");
+
+    const theme =
+        savedTheme === "dark" ? "dark" : "light";
 
     document.documentElement.setAttribute(
         "data-theme",
-        savedTheme
+        theme
     );
 
     updateThemeButton();
@@ -78,21 +80,49 @@ async function loadDonorProfile() {
             credentials: "include"
         });
 
-        const data = await response.json();
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error("Invalid server response.");
+        }
 
         if (!response.ok || !data.user) {
-            window.location.href = "/login.html";
+            window.location.replace("/login.html");
             return;
         }
 
         if (data.user.role !== "donor") {
-            window.location.href = "/login.html";
+            window.location.replace("/login.html");
             return;
         }
 
-        donorName.textContent = data.user.name;
-        donorFullName.textContent = data.user.name;
-        donorEmail.textContent = data.user.email;
+        donorName.textContent = data.user.name || "Donor";
+        donorFullName.textContent = data.user.name || "-";
+        donorEmail.textContent = data.user.email || "-";
+
+        const accountStatus =
+            document.querySelector(".account-status");
+
+        if (accountStatus) {
+            accountStatus.replaceChildren();
+
+            const statusDot = document.createElement("span");
+            statusDot.className = "status-dot";
+
+            const isActive = data.user.isActive === true;
+
+            accountStatus.appendChild(statusDot);
+            accountStatus.appendChild(
+                document.createTextNode(
+                    isActive ? "Active" : "Inactive"
+                )
+            );
+
+            accountStatus.style.color =
+                isActive ? "var(--success)" : "var(--primary)";
+        }
 
         await loadDonationHistory();
 
@@ -100,7 +130,7 @@ async function loadDonorProfile() {
         console.error("Donor profile error:", error);
 
         donorMessage.textContent =
-            "Unable to load donor profile.";
+            "Unable to load donor profile. Please refresh the page.";
     }
 }
 
@@ -146,7 +176,13 @@ async function loadDonationHistory() {
             credentials: "include"
         });
 
-        const donations = await response.json();
+        let donations;
+
+        try {
+            donations = await response.json();
+        } catch {
+            throw new Error("Invalid donation history response.");
+        }
 
         if (!response.ok) {
             throw new Error(
@@ -171,7 +207,6 @@ async function loadDonationHistory() {
         // NO DONATION RECORDS
 
         if (donations.length === 0) {
-
             donationMessage.textContent =
                 "No donation records available yet.";
 
@@ -192,7 +227,6 @@ async function loadDonationHistory() {
             `${donations.length} donation record(s) found.`;
 
         donations.forEach(donation => {
-
             const row = document.createElement("tr");
 
             const values = [
@@ -204,21 +238,17 @@ async function loadDonationHistory() {
             ];
 
             values.forEach(value => {
-
                 const cell = document.createElement("td");
 
                 cell.textContent = value ?? "-";
 
                 row.appendChild(cell);
-
             });
 
             donationTable.appendChild(row);
-
         });
 
     } catch (error) {
-
         console.error("Donation history error:", error);
 
         donationMessage.textContent =
@@ -240,28 +270,28 @@ async function loadDonationHistory() {
 // ==============================
 
 async function logoutDonor() {
-
     logoutButtons.forEach(button => {
         button.disabled = true;
         button.textContent = "Logging out...";
     });
 
     try {
-
         const response = await fetch("/api/auth/logout", {
             method: "POST",
             credentials: "include"
         });
 
         if (!response.ok) {
-            throw new Error("Logout failed.");
+            throw new Error("Logout failed. Please try again.");
         }
 
-        window.location.href = "/login.html";
+        window.location.replace("/login.html");
 
     } catch (error) {
+        console.error("Donor logout error:", error);
 
-        donorMessage.textContent = error.message;
+        donorMessage.textContent =
+            error.message || "Unable to log out.";
 
         logoutButtons.forEach(button => {
             button.disabled = false;

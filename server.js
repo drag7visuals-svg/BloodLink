@@ -1,11 +1,6 @@
 
-// ==============================
-// IMPORTS
-// ==============================
-
 const express = require("express");
 const mongoose = require("mongoose");
-const cors = require("cors");
 const path = require("path");
 require("dotenv").config();
 
@@ -27,6 +22,32 @@ const { protect, authorize } = require("./middleware/auth");
 const app = express();
 
 // ==============================
+// CONSTANTS
+// ==============================
+
+const PORT = process.env.PORT || 5000;
+
+const publicDirectory = path.join(__dirname, "public");
+
+const BLOOD_GROUPS = [
+    "A+",
+    "A-",
+    "B+",
+    "B-",
+    "AB+",
+    "AB-",
+    "O+",
+    "O-"
+];
+
+const COMPONENTS = [
+    "Whole Blood",
+    "Red Cells",
+    "Plasma",
+    "Platelets"
+];
+
+// ==============================
 // SECURITY AND MIDDLEWARE
 // ==============================
 
@@ -34,11 +55,19 @@ app.use(helmet({
     contentSecurityPolicy: false
 }));
 
-app.use(cors());
-app.use(express.json());
+app.use(express.json({
+    limit: "20kb"
+}));
+
 app.use(cookieParser());
 
-// Prevent direct static access to protected dashboards
+// Frontend and backend use the same origin.
+// CORS is therefore unnecessary.
+
+// ==============================
+// STATIC FILES
+// ==============================
+
 const protectedPages = [
     "/index.html",
     "/bloodbank.html",
@@ -46,17 +75,22 @@ const protectedPages = [
     "/donor.html"
 ];
 
+const staticFiles = express.static(publicDirectory, {
+    index: false
+});
+
 app.use((req, res, next) => {
     if (protectedPages.includes(req.path)) {
         return next();
     }
 
-    express.static(path.join(__dirname, "public"), {
-        index: false
-    })(req, res, next);
+    return staticFiles(req, res, next);
 });
 
-// Authentication rate limiter
+// ==============================
+// AUTHENTICATION RATE LIMITER
+// ==============================
+
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
@@ -67,35 +101,72 @@ const authLimiter = rateLimit({
     }
 });
 
+// Limit login and registration attempts.
+// Do not unnecessarily limit /me and /logout.
+
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+
 // ==============================
 // API ROUTES
 // ==============================
 
-// Authentication routes
-app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/auth", authRoutes);
 
-// Blood request routes
 app.use("/api/requests", requestRoutes);
 
-// Blood expiry alert routes
 app.use("/api/expiry-alerts", expiryRoutes);
 
-// Public blood unit tracking routes
 app.use("/api/tracking", trackingRoutes);
 
 // ==============================
-// MONGODB CONNECTION
+// HELPER FUNCTIONS
 // ==============================
 
-mongoose.connect(
-    process.env.MONGO_URI || "mongodb://127.0.0.1:27017/BloodBankDB"
-)
-.then(() => {
-    console.log("MongoDB Connected Successfully");
-})
-.catch((error) => {
-    console.log("MongoDB Connection Failed:", error.message);
-});
+function isValidDate(value) {
+    if (typeof value !== "string") {
+        return false;
+    }
+
+    // Accept the YYYY-MM-DD format used by HTML date inputs.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+    }
+
+    const date = new Date(`${value}T00:00:00.000Z`);
+
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.toISOString().slice(0, 10) === value
+    );
+}
+
+function getOwnershipFilter(req) {
+    if (req.user.role === "bloodbank") {
+        return {
+            registeredBy: req.user.userId
+        };
+    }
+
+    // Admin and Hospital can access shared inventory.
+    return {};
+}
+
+function clearAuthenticationCookie(res) {
+    res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/"
+    });
+}
+
+function isValidObjectId(value) {
+    return (
+        typeof value === "string" &&
+        /^[a-fA-F0-9]{24}$/.test(value)
+    );
+}
 
 // ==============================
 // DASHBOARD ACCESS CONTROL
@@ -104,21 +175,42 @@ mongoose.connect(
 function requireDashboardRole(role, filename) {
     return async (req, res) => {
         const token = req.cookies?.token;
+        const secret = process.env.JWT_SECRET;
 
         if (!token) {
             return res.redirect("/login.html");
         }
 
-        try {
-            const decoded = jwt.verify(
-                token,
-                process.env.JWT_SECRET
-            );
+        if (!secret) {
+            console.error("JWT_SECRET is missing.");
 
-            const user = await User.findById(decoded.userId);
+            return res.status(500).send(
+                "Authentication service is not configured."
+            );
+        }
+
+        try {
+            const decoded = jwt.verify(token, secret, {
+                algorithms: ["HS256"]
+            });
+
+            if (
+                !decoded ||
+                typeof decoded.userId !== "string" ||
+                !isValidObjectId(decoded.userId)
+            ) {
+                clearAuthenticationCookie(res);
+
+                return res.redirect("/login.html");
+            }
+
+            const user = await User.findById(decoded.userId)
+                .select("_id role isActive")
+                .lean();
 
             if (!user || !user.isActive) {
-                res.clearCookie("token");
+                clearAuthenticationCookie(res);
+
                 return res.redirect("/login.html");
             }
 
@@ -128,69 +220,70 @@ function requireDashboardRole(role, filename) {
                 );
             }
 
-            res.sendFile(
-                path.join(__dirname, "public", filename)
+            return res.sendFile(
+                path.join(publicDirectory, filename)
             );
 
         } catch (error) {
-            res.clearCookie("token");
-            return res.redirect("/login.html");
+            if (
+                error.name === "JsonWebTokenError" ||
+                error.name === "TokenExpiredError" ||
+                error.name === "NotBeforeError"
+            ) {
+                clearAuthenticationCookie(res);
+
+                return res.redirect("/login.html");
+            }
+
+            console.error(
+                "Dashboard authentication error:",
+                error.message
+            );
+
+            return res.status(500).send(
+                "Unable to verify dashboard access."
+            );
         }
     };
 }
 
-// Login page
+// ==============================
+// PAGE ROUTES
+// ==============================
+
 app.get("/login", (req, res) => {
-    res.redirect("/login.html");
+    return res.redirect("/login.html");
 });
 
-// Prevent direct access to admin HTML
 app.get("/index.html", (req, res) => {
-    res.redirect("/");
+    return res.redirect("/");
 });
 
-// Admin dashboard
-app.get("/", requireDashboardRole("admin", "index.html"));
+app.get(
+    "/",
+    requireDashboardRole("admin", "index.html")
+);
 
-// Blood Bank dashboard
 app.get(
     "/bloodbank.html",
     requireDashboardRole("bloodbank", "bloodbank.html")
 );
 
-// Hospital dashboard
 app.get(
     "/hospital.html",
     requireDashboardRole("hospital", "hospital.html")
 );
 
-// Donor dashboard
 app.get(
     "/donor.html",
     requireDashboardRole("donor", "donor.html")
 );
 
-// Privacy policy
 app.get("/privacy", (req, res) => {
-    res.sendFile(
-        path.join(__dirname, "public", "privacy.html")
+    return res.sendFile(
+        path.join(publicDirectory, "privacy.html")
     );
 });
-
-// ==============================
-// OWNERSHIP FILTER
-// ==============================
-
-function getOwnershipFilter(req) {
-    if (req.user.role === "bloodbank") {
-        return {
-            registeredBy: req.user.userId
-        };
-    }
-
-    // Admin and Hospital can access shared inventory
-    return {};
-}
 
 // ==============================
 // GET REGISTERED DONORS
@@ -206,13 +299,17 @@ app.get(
             const donors = await User.find({
                 role: "donor",
                 isActive: true
-            }).select("_id name email");
+            })
+                .select("_id name email")
+                .lean();
 
-            res.json(donors);
+            return res.json(donors);
 
         } catch (error) {
-            res.status(500).json({
-                message: error.message
+            console.error("Load donors error:", error.message);
+
+            return res.status(500).json({
+                message: "Unable to load donors."
             });
         }
     }
@@ -236,10 +333,11 @@ app.post(
                 collectionDate,
                 expiryDate,
                 donorId
-            } = req.body;
+            } = req.body || {};
 
             if (
-                !unitId ||
+                typeof unitId !== "string" ||
+                !unitId.trim() ||
                 !bloodGroup ||
                 !component ||
                 !collectionDate ||
@@ -250,29 +348,42 @@ app.post(
                 });
             }
 
+            const cleanUnitId = unitId.trim();
+
+            if (cleanUnitId.length > 100) {
+                return res.status(400).json({
+                    message: "Blood unit ID is too long."
+                });
+            }
+
+            if (!BLOOD_GROUPS.includes(bloodGroup)) {
+                return res.status(400).json({
+                    message: "Invalid blood group."
+                });
+            }
+
+            if (!COMPONENTS.includes(component)) {
+                return res.status(400).json({
+                    message: "Invalid blood component."
+                });
+            }
+
             if (
-                isNaN(Date.parse(collectionDate)) ||
-                isNaN(Date.parse(expiryDate)) ||
-                new Date(expiryDate) <= new Date(collectionDate)
+                !isValidDate(collectionDate) ||
+                !isValidDate(expiryDate) ||
+                new Date(`${expiryDate}T00:00:00.000Z`) <=
+                new Date(`${collectionDate}T00:00:00.000Z`)
             ) {
                 return res.status(400).json({
                     message: "Please enter valid dates. Expiry date must be after collection date."
                 });
             }
 
-            const existingUnit = await BloodUnit.findOne({ unitId });
-
-            if (existingUnit) {
-                return res.status(409).json({
-                    message: "This blood unit ID already exists."
-                });
-            }
-
-            // Validate selected donor
+            // Validate selected donor.
             let donor = null;
 
             if (donorId) {
-                if (!mongoose.Types.ObjectId.isValid(donorId)) {
+                if (!isValidObjectId(donorId)) {
                     return res.status(400).json({
                         message: "Invalid donor ID."
                     });
@@ -282,7 +393,7 @@ app.post(
                     _id: donorId,
                     role: "donor",
                     isActive: true
-                });
+                }).select("_id");
 
                 if (!donor) {
                     return res.status(400).json({
@@ -292,7 +403,7 @@ app.post(
             }
 
             const bloodUnit = new BloodUnit({
-                unitId,
+                unitId: cleanUnitId,
                 bloodGroup,
                 component,
                 collectionDate,
@@ -309,14 +420,31 @@ app.post(
 
             await bloodUnit.save();
 
-            res.status(201).json({
+            return res.status(201).json({
                 message: "Blood unit registered successfully.",
                 data: bloodUnit
             });
 
         } catch (error) {
-            res.status(400).json({
-                message: error.message
+            if (error.code === 11000) {
+                return res.status(409).json({
+                    message: "This blood unit ID already exists."
+                });
+            }
+
+            if (error.name === "ValidationError") {
+                return res.status(400).json({
+                    message: "Invalid blood unit details."
+                });
+            }
+
+            console.error(
+                "Register blood unit error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to register blood unit."
             });
         }
     }
@@ -335,13 +463,23 @@ app.get(
         try {
             const donations = await BloodUnit.find({
                 donor: req.user.userId
-            }).sort({ collectionDate: -1 });
+            })
+                .select(
+                    "unitId bloodGroup component collectionDate expiryDate status createdAt"
+                )
+                .sort({ collectionDate: -1 })
+                .lean();
 
-            res.json(donations);
+            return res.json(donations);
 
         } catch (error) {
-            res.status(500).json({
-                message: error.message
+            console.error(
+                "Donation history error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to load donation history."
             });
         }
     }
@@ -362,25 +500,23 @@ app.get(
 
             const bloodUnits = await BloodUnit.find(
                 ownershipFilter
-            ).sort({ createdAt: -1 });
+            )
+                .sort({ createdAt: -1 })
+                .lean();
 
-            const today = new Date();
+            // This endpoint only reads inventory.
+            // Expiry processing is handled separately.
 
-            for (const unit of bloodUnits) {
-                if (
-                    new Date(unit.expiryDate) < today &&
-                    ["Available", "Reserved"].includes(unit.status)
-                ) {
-                    unit.status = "Expired";
-                    await unit.save();
-                }
-            }
-
-            res.json(bloodUnits);
+            return res.json(bloodUnits);
 
         } catch (error) {
-            res.status(500).json({
-                message: error.message
+            console.error(
+                "Load inventory error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to load blood inventory."
             });
         }
     }
@@ -397,10 +533,18 @@ app.get(
     authorize("admin", "bloodbank", "hospital"),
     async (req, res) => {
         try {
+            const unitId = req.params.unitId.trim();
+
+            if (!unitId || unitId.length > 100) {
+                return res.status(400).json({
+                    message: "Invalid blood unit ID."
+                });
+            }
+
             const bloodUnit = await BloodUnit.findOne({
-                unitId: req.params.unitId,
+                unitId,
                 ...getOwnershipFilter(req)
-            });
+            }).lean();
 
             if (!bloodUnit) {
                 return res.status(404).json({
@@ -408,27 +552,47 @@ app.get(
                 });
             }
 
-            res.json(bloodUnit);
+            return res.json(bloodUnit);
 
         } catch (error) {
-            res.status(500).json({
-                message: error.message
+            console.error(
+                "Find blood unit error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to retrieve blood unit."
             });
         }
     }
 );
 
 // ==============================
-// ALLOWED STATUS TRANSITIONS
+// MANUAL STATUS TRANSITIONS
+// Admin and Blood Bank only
 // ==============================
 
+// Reserved, Dispatched and Received are
+// managed by the request workflow.
+
 const allowedTransitions = {
-    "Collected": ["Testing Pending", "Rejected"],
-    "Testing Pending": ["Available", "Rejected"],
-    "Available": ["Reserved", "Expired", "Recalled"],
-    "Reserved": ["Dispatched", "Available", "Recalled"],
-    "Dispatched": ["Received", "Recalled"],
-    "Received": ["Recalled"],
+    "Collected": [
+        "Testing Pending",
+        "Rejected"
+    ],
+
+    "Testing Pending": [
+        "Available",
+        "Rejected"
+    ],
+
+    "Available": [
+        "Recalled"
+    ],
+
+    "Reserved": [],
+    "Dispatched": [],
+    "Received": [],
     "Rejected": [],
     "Expired": [],
     "Recalled": []
@@ -445,7 +609,7 @@ app.patch(
     authorize("admin", "bloodbank"),
     async (req, res) => {
         try {
-            const { status } = req.body;
+            const { status } = req.body || {};
 
             const bloodUnit = await BloodUnit.findOne({
                 unitId: req.params.unitId,
@@ -459,12 +623,12 @@ app.patch(
             }
 
             if (
-                !status ||
+                typeof status !== "string" ||
                 !allowedTransitions[bloodUnit.status] ||
                 !allowedTransitions[bloodUnit.status].includes(status)
             ) {
                 return res.status(400).json({
-                    message: "This status change is not allowed."
+                    message: "This status change is not allowed through manual inventory management."
                 });
             }
 
@@ -477,17 +641,41 @@ app.patch(
                 });
             }
 
-            bloodUnit.status = status;
-            await bloodUnit.save();
+            const updatedUnit = await BloodUnit.findOneAndUpdate(
+                {
+                    _id: bloodUnit._id,
+                    status: bloodUnit.status
+                },
+                {
+                    $set: {
+                        status
+                    }
+                },
+                {
+                    new: true,
+                    runValidators: true
+                }
+            );
 
-            res.json({
+            if (!updatedUnit) {
+                return res.status(409).json({
+                    message: "Blood unit status changed. Refresh and try again."
+                });
+            }
+
+            return res.json({
                 message: "Status updated successfully.",
-                data: bloodUnit
+                data: updatedUnit
             });
 
         } catch (error) {
-            res.status(400).json({
-                message: error.message
+            console.error(
+                "Update blood status error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to update blood unit status."
             });
         }
     }
@@ -509,32 +697,40 @@ app.put(
                 component,
                 collectionDate,
                 expiryDate
-            } = req.body;
+            } = req.body || {};
 
             if (
-                !bloodGroup ||
-                !component ||
-                !collectionDate ||
-                !expiryDate ||
-                isNaN(Date.parse(collectionDate)) ||
-                isNaN(Date.parse(expiryDate)) ||
-                new Date(expiryDate) <= new Date(collectionDate)
+                !BLOOD_GROUPS.includes(bloodGroup) ||
+                !COMPONENTS.includes(component) ||
+                !isValidDate(collectionDate) ||
+                !isValidDate(expiryDate) ||
+                new Date(`${expiryDate}T00:00:00.000Z`) <=
+                new Date(`${collectionDate}T00:00:00.000Z`)
             ) {
                 return res.status(400).json({
                     message: "Please provide valid blood unit details and dates."
                 });
             }
 
-            const bloodUnit = await BloodUnit.findOneAndUpdate(
+            // Only unallocated units can be edited.
+            const updatedUnit = await BloodUnit.findOneAndUpdate(
                 {
                     unitId: req.params.unitId,
-                    ...getOwnershipFilter(req)
+                    ...getOwnershipFilter(req),
+                    status: {
+                        $in: [
+                            "Collected",
+                            "Testing Pending"
+                        ]
+                    }
                 },
                 {
-                    bloodGroup,
-                    component,
-                    collectionDate,
-                    expiryDate
+                    $set: {
+                        bloodGroup,
+                        component,
+                        collectionDate,
+                        expiryDate
+                    }
                 },
                 {
                     new: true,
@@ -542,20 +738,31 @@ app.put(
                 }
             );
 
-            if (!bloodUnit) {
-                return res.status(404).json({
-                    message: "Blood unit not found."
+            if (!updatedUnit) {
+                return res.status(409).json({
+                    message: "Blood unit not found or cannot be edited in its current status."
                 });
             }
 
-            res.json({
+            return res.json({
                 message: "Blood unit updated successfully.",
-                data: bloodUnit
+                data: updatedUnit
             });
 
         } catch (error) {
-            res.status(400).json({
-                message: error.message
+            if (error.name === "ValidationError") {
+                return res.status(400).json({
+                    message: "Invalid blood unit details."
+                });
+            }
+
+            console.error(
+                "Edit blood unit error:",
+                error.message
+            );
+
+            return res.status(500).json({
+                message: "Unable to update blood unit."
             });
         }
     }
@@ -566,22 +773,74 @@ app.put(
 // ==============================
 
 app.use("/api", (req, res) => {
-    res.status(404).json({
+    return res.status(404).json({
         message: "API route not found."
     });
 });
 
-// Handle unknown pages
+// ==============================
+// HANDLE UNKNOWN PAGES
+// ==============================
+
 app.use((req, res) => {
-    res.status(404).send("Page not found.");
+    return res.status(404).send("Page not found.");
 });
 
 // ==============================
-// START SERVER
+// HANDLE EXPRESS ERRORS
 // ==============================
 
-const PORT = process.env.PORT || 5000;
+app.use((error, req, res, next) => {
+    if (res.headersSent) {
+        return next(error);
+    }
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+    if (error.type === "entity.too.large") {
+        return res.status(413).json({
+            message: "Request body is too large."
+        });
+    }
+
+    if (error instanceof SyntaxError && error.status === 400) {
+        return res.status(400).json({
+            message: "Invalid JSON request body."
+        });
+    }
+
+    console.error("Server error:", error.message);
+
+    return res.status(500).json({
+        message: "An unexpected server error occurred."
+    });
 });
+
+// ==============================
+// START SERVER AFTER DB CONNECTION
+// ==============================
+
+async function startServer() {
+    try {
+        await mongoose.connect(
+            process.env.MONGO_URI ||
+            "mongodb://127.0.0.1:27017/BloodBankDB"
+        );
+
+        console.log("MongoDB Connected Successfully");
+
+        app.listen(PORT, () => {
+            console.log(
+                `Server running at http://localhost:${PORT}`
+            );
+        });
+
+    } catch (error) {
+        console.error(
+            "MongoDB Connection Failed:",
+            error.message
+        );
+
+        process.exit(1);
+    }
+}
+
+startServer();

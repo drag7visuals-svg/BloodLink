@@ -5,19 +5,21 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Get expiry alerts
+// ==============================
+// GET BLOOD UNIT EXPIRY ALERTS
+// ADMIN AND BLOOD BANK ONLY
+// ==============================
+
 router.get(
     "/",
     protect,
     authorize("admin", "bloodbank"),
     async (req, res) => {
         try {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            const now = new Date();
 
-            const sevenDaysLater = new Date(today);
+            const sevenDaysLater = new Date(now);
             sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
-            sevenDaysLater.setHours(23, 59, 59, 999);
 
             const ownershipFilter =
                 req.user.role === "bloodbank"
@@ -36,22 +38,33 @@ router.get(
                 status: { $in: activeStatuses }
             };
 
+            const fields =
+                "unitId bloodGroup component collectionDate expiryDate status createdAt updatedAt";
+
             const [expiringSoon, expired] = await Promise.all([
+                // Units expiring within the next seven days
                 BloodUnit.find({
                     ...baseFilter,
                     expiryDate: {
-                        $gte: today,
+                        $gte: now,
                         $lte: sevenDaysLater
                     }
-                }).sort({ expiryDate: 1 }),
+                })
+                    .select(fields)
+                    .sort({ expiryDate: 1 })
+                    .lean(),
 
+                // Units that have already expired
                 BloodUnit.find({
                     ...baseFilter,
-                    expiryDate: { $lt: today }
-                }).sort({ expiryDate: 1 })
+                    expiryDate: { $lt: now }
+                })
+                    .select(fields)
+                    .sort({ expiryDate: 1 })
+                    .lean()
             ]);
 
-            res.json({
+            return res.json({
                 message: "Expiry alerts retrieved successfully.",
                 summary: {
                     expiringSoon: expiringSoon.length,
@@ -64,7 +77,7 @@ router.get(
         } catch (error) {
             console.error("Expiry alert error:", error);
 
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Unable to retrieve expiry alerts."
             });
         }

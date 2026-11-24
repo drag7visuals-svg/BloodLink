@@ -12,8 +12,10 @@
 
     <script>
         // Apply saved theme before the page renders
-        const savedTheme = localStorage.getItem("donorTheme") || "light";
-        document.documentElement.setAttribute("data-theme", savedTheme);
+        const savedTheme = localStorage.getItem("donorTheme");
+        const theme = savedTheme === "dark" ? "dark" : "light";
+
+        document.documentElement.setAttribute("data-theme", theme);
     </script>
 
     <style>
@@ -91,6 +93,10 @@
             font: inherit;
         }
 
+        a {
+            text-decoration: none;
+        }
+
         /* ==============================
            LAYOUT
         ============================== */
@@ -151,6 +157,12 @@
             border-radius: 7px;
             font-size: 14px;
             color: var(--sidebar-text);
+            transition: 0.2s;
+        }
+
+        .donor-nav-item:hover {
+            background: var(--primary-soft);
+            color: var(--primary);
         }
 
         .donor-nav-item.active {
@@ -228,6 +240,7 @@
 
         .donor-welcome {
             margin-bottom: 32px;
+            scroll-margin-top: 25px;
         }
 
         .donor-welcome h1 {
@@ -252,6 +265,7 @@
 
         .donor-section {
             margin-bottom: 29px;
+            scroll-margin-top: 25px;
         }
 
         .donor-section-heading {
@@ -294,7 +308,7 @@
             display: inline-flex;
             align-items: center;
             gap: 7px;
-            color: var(--success) !important;
+            color: var(--success);
         }
 
         .status-dot {
@@ -302,6 +316,7 @@
             height: 7px;
             border-radius: 50%;
             background: var(--success);
+            flex-shrink: 0;
         }
 
         /* ==============================
@@ -501,10 +516,17 @@
                 margin-bottom: 0;
             }
 
-            .donor-nav-label,
-            .donor-nav-item,
-            .donor-sidebar-bottom {
+            .donor-nav-label {
                 display: none;
+            }
+
+            .donor-nav-item {
+                display: block;
+            }
+
+            .donor-sidebar-bottom {
+                display: block;
+                margin-top: 10px;
             }
 
             .donor-main {
@@ -550,16 +572,19 @@
 
         <p class="donor-nav-label">MENU</p>
 
-        <div class="donor-nav-item active">
+        <a href="#dashboard" class="donor-nav-item active">
             Dashboard
-        </div>
+        </a>
 
-        <div class="donor-nav-item">
+        <a href="#donationHistory" class="donor-nav-item">
             Donation History
-        </div>
+        </a>
 
         <div class="donor-sidebar-bottom">
-            <button type="button" class="donor-logout" id="sidebarLogoutButton">
+            <button
+                type="button"
+                class="donor-logout"
+                id="sidebarLogoutButton">
                 Log Out
             </button>
         </div>
@@ -596,7 +621,7 @@
 
         <!-- WELCOME -->
 
-        <section class="donor-welcome">
+        <section class="donor-welcome" id="dashboard">
 
             <h1>
                 Welcome, <span id="donorName">Donor</span>
@@ -636,7 +661,7 @@
 
                 <div class="donor-profile-item">
                     <label>Account Status</label>
-                    <p class="account-status">
+                    <p class="account-status" aria-live="polite">
                         <span class="status-dot"></span>
                         Active
                     </p>
@@ -660,7 +685,7 @@
                 <div class="donor-stat-card">
 
                     <div class="donor-stat-top">
-                        <p>Total Donations</p>
+                        <p>Donation Records</p>
                         <div class="donor-stat-icon">+</div>
                     </div>
 
@@ -672,7 +697,7 @@
                 <div class="donor-stat-card">
 
                     <div class="donor-stat-top">
-                        <p>Blood Units Registered</p>
+                        <p>Registered Blood Units</p>
                         <div class="donor-stat-icon">B</div>
                     </div>
 
@@ -687,7 +712,7 @@
 
         <!-- DONATION HISTORY -->
 
-        <section class="donor-section">
+        <section class="donor-section" id="donationHistory">
 
             <div class="donor-table-card">
 
@@ -699,7 +724,7 @@
                         View the blood units registered under your donor account.
                     </p>
 
-                    <p id="donationMessage">
+                    <p id="donationMessage" role="status" aria-live="polite">
                         Loading donation history...
                     </p>
 
@@ -739,15 +764,7 @@
         </section>
 
 
-        <button
-            type="button"
-            class="donor-logout"
-            id="mainLogoutButton"
-            style="width: auto; display: none;">
-            Log Out
-        </button>
-
-        <p id="donorMessage" class="donor-message" role="status"></p>
+        <p id="donorMessage" class="donor-message" role="status" aria-live="polite"></p>
 
 
         <footer class="donor-footer">

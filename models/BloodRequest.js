@@ -7,19 +7,22 @@ const bloodRequestSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique: true,
-            trim: true
+            trim: true,
+            immutable: true
         },
 
         hospital: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true
+            required: true,
+            index: true
         },
 
         bloodBank: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true
+            required: true,
+            index: true
         },
 
         bloodGroup: {
@@ -45,7 +48,12 @@ const bloodRequestSchema = new mongoose.Schema(
         quantity: {
             type: Number,
             required: true,
-            min: 1
+            min: 1,
+            max: 100,
+            validate: {
+                validator: Number.isInteger,
+                message: "Quantity must be a whole number."
+            }
         },
 
         status: {
@@ -60,10 +68,10 @@ const bloodRequestSchema = new mongoose.Schema(
                 "Received",
                 "Cancelled"
             ],
-            default: "Pending"
+            default: "Pending",
+            index: true
         },
 
-        // Blood units allocated to this request
         allocatedUnits: [
             {
                 type: mongoose.Schema.Types.ObjectId,
@@ -82,5 +90,10 @@ const bloodRequestSchema = new mongoose.Schema(
         timestamps: true
     }
 );
+
+// Compound indexes for common request queries.
+bloodRequestSchema.index({ hospital: 1, createdAt: -1 });
+bloodRequestSchema.index({ bloodBank: 1, createdAt: -1 });
+bloodRequestSchema.index({ bloodBank: 1, status: 1 });
 
 module.exports = mongoose.model("BloodRequest", bloodRequestSchema);

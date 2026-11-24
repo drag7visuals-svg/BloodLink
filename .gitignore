@@ -1,11 +1,13 @@
+# Dependencies
 node_modules/
-.env
-.DS_Store
-npm-debug.log
-# Sensitive environment files
+
+# Environment files
 .env
 .env.*
 !.env.example
 
-# Dependencies
-node_modules/
+# System files
+.DS_Store
+
+# npm logs
+npm-debug.log*

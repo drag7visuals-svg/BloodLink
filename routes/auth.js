@@ -8,12 +8,66 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
+const COOKIE_NAME = "token";
+const TOKEN_EXPIRY = "7d";
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const BCRYPT_MAX_BYTES = 72;
+
 const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000
+    path: "/",
+    maxAge: COOKIE_MAX_AGE
 };
+
+const clearCookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/"
+};
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+
+// ==============================
+// VALIDATION HELPERS
+// ==============================
+
+function isValidEmail(email) {
+    return (
+        typeof email === "string" &&
+        email.trim().length <= 254 &&
+        emailRegex.test(email.trim())
+    );
+}
+
+function isValidName(name) {
+    return (
+        typeof name === "string" &&
+        name.trim().length >= 2 &&
+        name.trim().length <= 100
+    );
+}
+
+function isValidPassword(password, minimumLength) {
+    return (
+        typeof password === "string" &&
+        password.length >= minimumLength &&
+        Buffer.byteLength(password, "utf8") <= BCRYPT_MAX_BYTES
+    );
+}
+
+function safeUser(user) {
+    return {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive
+    };
+}
 
 // ==============================
 // DONOR REGISTRATION
@@ -21,31 +75,21 @@ const cookieOptions = {
 
 router.post("/register", async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password } = req.body || {};
 
-        if (!name || !email || !password) {
+        if (!isValidName(name) || !isValidEmail(email)) {
             return res.status(400).json({
-                message: "Please fill in all required fields."
+                message: "Please provide a valid name and email address."
             });
         }
 
-        if (password.length < 8) {
+        if (!isValidPassword(password, 8)) {
             return res.status(400).json({
-                message: "Password must contain at least 8 characters."
+                message: "Password must contain at least 8 characters and must not exceed 72 UTF-8 bytes."
             });
         }
 
         const normalizedEmail = email.trim().toLowerCase();
-
-        const existingUser = await User.findOne({
-            email: normalizedEmail
-        });
-
-        if (existingUser) {
-            return res.status(409).json({
-                message: "An account with this email already exists."
-            });
-        }
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -56,14 +100,9 @@ router.post("/register", async (req, res) => {
             role: "donor"
         });
 
-        res.status(201).json({
+        return res.status(201).json({
             message: "Donor account created successfully.",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
+            user: safeUser(user)
         });
 
     } catch (error) {
@@ -73,9 +112,15 @@ router.post("/register", async (req, res) => {
             });
         }
 
+        if (error.name === "ValidationError") {
+            return res.status(400).json({
+                message: "Invalid registration information."
+            });
+        }
+
         console.error("Donor registration error:", error);
 
-        res.status(500).json({
+        return res.status(500).json({
             message: "Registration failed."
         });
     }
@@ -91,11 +136,11 @@ router.post(
     authorize("admin"),
     async (req, res) => {
         try {
-            const { name, email, password, role } = req.body;
+            const { name, email, password, role } = req.body || {};
 
-            if (!name || !email || !password || !role) {
+            if (!isValidName(name) || !isValidEmail(email)) {
                 return res.status(400).json({
-                    message: "Please fill in all required fields."
+                    message: "Please provide a valid name and email address."
                 });
             }
 
@@ -105,23 +150,13 @@ router.post(
                 });
             }
 
-            if (password.length < 12) {
+            if (!isValidPassword(password, 12)) {
                 return res.status(400).json({
-                    message: "Password must contain at least 12 characters."
+                    message: "Password must contain at least 12 characters and must not exceed 72 UTF-8 bytes."
                 });
             }
 
             const normalizedEmail = email.trim().toLowerCase();
-
-            const existingUser = await User.findOne({
-                email: normalizedEmail
-            });
-
-            if (existingUser) {
-                return res.status(409).json({
-                    message: "An account with this email already exists."
-                });
-            }
 
             const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -132,14 +167,9 @@ router.post(
                 role
             });
 
-            res.status(201).json({
+            return res.status(201).json({
                 message: "Staff account created successfully.",
-                user: {
-                    id: user._id,
-                    name: user.name,
-                    email: user.email,
-                    role: user.role
-                }
+                user: safeUser(user)
             });
 
         } catch (error) {
@@ -149,9 +179,15 @@ router.post(
                 });
             }
 
+            if (error.name === "ValidationError") {
+                return res.status(400).json({
+                    message: "Invalid account information."
+                });
+            }
+
             console.error("Create staff account error:", error);
 
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Failed to create staff account."
             });
         }
@@ -169,10 +205,11 @@ router.get(
     async (req, res) => {
         try {
             const users = await User.find()
-                .select("-password")
-                .sort({ createdAt: -1 });
+                .select("name email role isActive createdAt updatedAt")
+                .sort({ createdAt: -1 })
+                .lean();
 
-            res.json({
+            return res.json({
                 count: users.length,
                 users
             });
@@ -180,7 +217,7 @@ router.get(
         } catch (error) {
             console.error("Get users error:", error);
 
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Failed to retrieve users."
             });
         }
@@ -197,11 +234,17 @@ router.patch(
     authorize("admin"),
     async (req, res) => {
         try {
-            const { isActive } = req.body;
+            const { isActive } = req.body || {};
 
             if (typeof isActive !== "boolean") {
                 return res.status(400).json({
                     message: "isActive must be true or false."
+                });
+            }
+
+            if (!objectIdRegex.test(req.params.id)) {
+                return res.status(400).json({
+                    message: "Invalid user ID."
                 });
             }
 
@@ -238,21 +281,15 @@ router.patch(
             user.isActive = isActive;
             await user.save();
 
-            res.json({
+            return res.json({
                 message: `User ${isActive ? "activated" : "deactivated"} successfully.`,
-                user: {
-                    id: user._id,
-                    name: user.name,
-                    email: user.email,
-                    role: user.role,
-                    isActive: user.isActive
-                }
+                user: safeUser(user)
             });
 
         } catch (error) {
             console.error("Update user status error:", error);
 
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Failed to update user status."
             });
         }
@@ -275,9 +312,10 @@ router.get(
                 isActive: true
             })
                 .select("name email")
-                .sort({ name: 1 });
+                .sort({ name: 1 })
+                .lean();
 
-            res.json({
+            return res.json({
                 count: bloodBanks.length,
                 bloodBanks
             });
@@ -285,7 +323,7 @@ router.get(
         } catch (error) {
             console.error("Get Blood Banks error:", error);
 
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Unable to retrieve Blood Banks."
             });
         }
@@ -298,11 +336,26 @@ router.get(
 
 router.post("/login", async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
 
-        if (!email || !password) {
+        if (
+            !isValidEmail(email) ||
+            typeof password !== "string" ||
+            password.length === 0 ||
+            Buffer.byteLength(password, "utf8") > BCRYPT_MAX_BYTES
+        ) {
             return res.status(400).json({
-                message: "Email and password are required."
+                message: "Please provide a valid email and password."
+            });
+        }
+
+        const secret = process.env.JWT_SECRET;
+
+        if (!secret) {
+            console.error("JWT_SECRET is missing.");
+
+            return res.status(500).json({
+                message: "Authentication service is not configured."
             });
         }
 
@@ -332,26 +385,24 @@ router.post("/login", async (req, res) => {
                 userId: user._id.toString(),
                 role: user.role
             },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
+            secret,
+            {
+                expiresIn: TOKEN_EXPIRY,
+                algorithm: "HS256"
+            }
         );
 
-        res.cookie("token", token, cookieOptions);
+        res.cookie(COOKIE_NAME, token, cookieOptions);
 
-        res.json({
+        return res.json({
             message: "Login successful.",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
+            user: safeUser(user)
         });
 
     } catch (error) {
         console.error("Login error:", error);
 
-        res.status(500).json({
+        return res.status(500).json({
             message: "Login failed."
         });
     }
@@ -361,46 +412,29 @@ router.post("/login", async (req, res) => {
 // CHECK CURRENT SESSION
 // ==============================
 
-router.get("/me", async (req, res) => {
+router.get("/me", protect, async (req, res) => {
     try {
-        const token = req.cookies?.token;
-
-        if (!token) {
-            return res.status(401).json({
-                message: "Not logged in."
-            });
-        }
-
-        const decoded = jwt.verify(
-            token,
-            process.env.JWT_SECRET
-        );
-
-        const user = await User.findById(decoded.userId);
+        const user = await User.findById(req.user.userId)
+            .select("name email role isActive");
 
         if (!user || !user.isActive) {
-            res.clearCookie("token", cookieOptions);
+            res.clearCookie(COOKIE_NAME, clearCookieOptions);
 
             return res.status(401).json({
                 message: "Account unavailable. Please log in again."
             });
         }
 
-        res.json({
+        return res.json({
             loggedIn: true,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
+            user: safeUser(user)
         });
 
     } catch (error) {
-        res.clearCookie("token", cookieOptions);
+        console.error("Session verification error:", error);
 
-        res.status(401).json({
-            message: "Session expired. Please log in again."
+        return res.status(500).json({
+            message: "Unable to verify your session."
         });
     }
 });
@@ -410,9 +444,9 @@ router.get("/me", async (req, res) => {
 // ==============================
 
 router.post("/logout", (req, res) => {
-    res.clearCookie("token", cookieOptions);
+    res.clearCookie(COOKIE_NAME, clearCookieOptions);
 
-    res.json({
+    return res.json({
         message: "Logged out successfully."
     });
 });

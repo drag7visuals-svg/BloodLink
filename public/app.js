@@ -5,13 +5,15 @@
 
 const CONTRACT_ADDRESS = "0xe5Fe3008701613D0F2C3489CABef73d275BBe04B";
 const API = "/api/blood-units";
+const SEPOLIA_CHAIN_ID = 11155111n;
 
 let bloodUnits = [];
-let provider;
-let signer;
-let bloodLinkContract;
+let provider = null;
+let signer = null;
+let bloodLinkContract = null;
 
 let currentQRCanvas = null;
+let registrationInProgress = false;
 
 // ==============================
 // BLOCKCHAIN STATUS VALUES
@@ -30,57 +32,131 @@ const blockchainStatuses = {
 };
 
 // ==============================
-// ALLOWED STATUS TRANSITIONS
+// ALLOWED MANUAL STATUS TRANSITIONS
+// Must match server.js
 // ==============================
 
 const allowedStatuses = {
-    "Collected": ["Collected", "Testing Pending", "Rejected"],
-    "Testing Pending": ["Testing Pending", "Available", "Rejected"],
-    "Available": ["Available", "Reserved", "Expired", "Recalled"],
-    "Reserved": ["Reserved", "Dispatched", "Available", "Recalled"],
-    "Dispatched": ["Dispatched", "Received", "Recalled"],
-    "Received": ["Received", "Recalled"],
-    "Rejected": ["Rejected"],
-    "Expired": ["Expired"],
-    "Recalled": ["Recalled"]
+    "Collected": [
+        "Testing Pending",
+        "Rejected"
+    ],
+
+    "Testing Pending": [
+        "Available",
+        "Rejected"
+    ],
+
+    "Available": [
+        "Recalled"
+    ],
+
+    "Reserved": [],
+    "Dispatched": [],
+    "Received": [],
+    "Rejected": [],
+    "Expired": [],
+    "Recalled": []
 };
+
+// ==============================
+// HELPER FUNCTIONS
+// ==============================
+
+function getElement(id) {
+    return document.getElementById(id);
+}
+
+async function readJson(response) {
+    try {
+        return await response.json();
+    } catch {
+        return {};
+    }
+}
+
+function showMessage(element, message, type = "") {
+    if (!element) return;
+
+    element.textContent = message;
+    element.className = type ? `message ${type}` : "message";
+}
+
+function isValidDate(value) {
+    if (typeof value !== "string") return false;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+    }
+
+    const date = new Date(`${value}T00:00:00.000Z`);
+
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.toISOString().slice(0, 10) === value
+    );
+}
+
+function formatDate(date) {
+    if (!date) return "N/A";
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+        return "Invalid date";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN");
+}
 
 // ==============================
 // LOAD REGISTERED DONORS
 // ==============================
 
 async function loadDonors() {
-    const donorSelect = document.getElementById("donorId");
+    const donorSelect = getElement("donorId");
 
     if (!donorSelect) return;
 
-    try {
-        donorSelect.innerHTML = `
-            <option value="">Loading donors...</option>
-        `;
+    donorSelect.replaceChildren();
 
+    const loadingOption = document.createElement("option");
+    loadingOption.value = "";
+    loadingOption.textContent = "Loading donors...";
+
+    donorSelect.appendChild(loadingOption);
+
+    try {
         const response = await fetch("/api/donors", {
             credentials: "include"
         });
 
+        const data = await readJson(response);
+
         if (!response.ok) {
-            throw new Error("Unable to load registered donors.");
+            throw new Error(
+                data.message || "Unable to load registered donors."
+            );
         }
 
-        const donors = await response.json();
+        if (!Array.isArray(data)) {
+            throw new Error("Invalid donor response.");
+        }
 
-        donorSelect.innerHTML = `
-            <option value="">No donor selected</option>
-        `;
+        donorSelect.replaceChildren();
 
-        if (donors.length === 0) {
-            donorSelect.innerHTML = `
-                <option value="">No registered donors found</option>
-            `;
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "No donor selected";
+
+        donorSelect.appendChild(defaultOption);
+
+        if (data.length === 0) {
+            defaultOption.textContent = "No registered donors found";
             return;
         }
 
-        donors.forEach(donor => {
+        data.forEach(donor => {
             const option = document.createElement("option");
 
             option.value = donor._id;
@@ -92,9 +168,13 @@ async function loadDonors() {
     } catch (error) {
         console.error("Donor loading error:", error);
 
-        donorSelect.innerHTML = `
-            <option value="">Could not load donors</option>
-        `;
+        donorSelect.replaceChildren();
+
+        const errorOption = document.createElement("option");
+        errorOption.value = "";
+        errorOption.textContent = "Could not load donors";
+
+        donorSelect.appendChild(errorOption);
     }
 }
 
@@ -103,27 +183,36 @@ async function loadDonors() {
 // ==============================
 
 async function loadInventory() {
-    const message = document.getElementById("inventoryMessage");
+    const message = getElement("inventoryMessage");
 
     try {
         const response = await fetch(API, {
             credentials: "include"
         });
 
+        const data = await readJson(response);
+
         if (!response.ok) {
-            throw new Error("Could not load inventory.");
+            throw new Error(
+                data.message || "Could not load inventory."
+            );
         }
 
-        bloodUnits = await response.json();
+        if (!Array.isArray(data)) {
+            throw new Error("Invalid inventory response.");
+        }
+
+        bloodUnits = data;
 
         showInventory();
         updateStatistics();
 
-        message.textContent = "";
+        showMessage(message, "");
 
     } catch (error) {
-        message.textContent = error.message;
-        message.className = "message error";
+        console.error("Inventory loading error:", error);
+
+        showMessage(message, error.message, "error");
     }
 }
 
@@ -132,28 +221,37 @@ async function loadInventory() {
 // ==============================
 
 function showInventory() {
-    const table = document.getElementById("inventoryTable");
+    const table = getElement("inventoryTable");
 
-    table.innerHTML = "";
+    if (!table) return;
 
-    const search = document.getElementById("searchInput").value.toLowerCase();
-    const group = document.getElementById("groupFilter").value;
-    const status = document.getElementById("statusFilter").value;
+    table.replaceChildren();
+
+    const search = (
+        getElement("searchInput")?.value || ""
+    ).toLowerCase();
+
+    const group = getElement("groupFilter")?.value || "";
+    const status = getElement("statusFilter")?.value || "";
 
     const filteredUnits = bloodUnits.filter(unit => {
         return (
-            unit.unitId.toLowerCase().includes(search) &&
+            String(unit.unitId).toLowerCase().includes(search) &&
             (!group || unit.bloodGroup === group) &&
             (!status || unit.status === status)
         );
     });
 
     if (filteredUnits.length === 0) {
-        table.innerHTML = `
-            <tr>
-                <td colspan="7">No blood units found</td>
-            </tr>
-        `;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 7;
+        cell.textContent = "No blood units found";
+
+        row.appendChild(cell);
+        table.appendChild(row);
+
         return;
     }
 
@@ -165,7 +263,8 @@ function showInventory() {
             unit.bloodGroup,
             unit.component,
             formatDate(unit.collectionDate),
-            formatDate(unit.expiryDate)
+            formatDate(unit.expiryDate),
+            unit.status
         ];
 
         values.forEach(value => {
@@ -174,16 +273,15 @@ function showInventory() {
             row.appendChild(cell);
         });
 
-        const statusCell = document.createElement("td");
-        statusCell.textContent = unit.status;
-        row.appendChild(statusCell);
-
         const actionCell = document.createElement("td");
         const statusSelect = document.createElement("select");
 
         statusSelect.className = "status-select";
 
-        (allowedStatuses[unit.status] || [unit.status]).forEach(value => {
+        const transitions = allowedStatuses[unit.status] || [];
+
+        // Show the current status and only permitted next statuses.
+        [unit.status, ...transitions].forEach(value => {
             const option = document.createElement("option");
 
             option.value = value;
@@ -194,12 +292,18 @@ function showInventory() {
 
         statusSelect.value = unit.status;
 
+        if (transitions.length === 0) {
+            statusSelect.disabled = true;
+        }
+
         statusSelect.addEventListener("change", async () => {
+            const newStatus = statusSelect.value;
+
             statusSelect.disabled = true;
 
-            await updateStatus(unit.unitId, statusSelect.value);
+            await updateStatus(unit.unitId, newStatus);
 
-            statusSelect.disabled = false;
+            // Inventory refresh will rebuild the dropdown.
         });
 
         actionCell.appendChild(statusSelect);
@@ -210,29 +314,74 @@ function showInventory() {
 }
 
 // ==============================
-// FORMAT DATES
-// ==============================
-
-function formatDate(date) {
-    return new Date(date).toLocaleDateString("en-IN");
-}
-
-// ==============================
 // DASHBOARD STATISTICS
 // ==============================
 
 function updateStatistics() {
-    document.getElementById("totalUnits").textContent =
-        bloodUnits.length;
+    const total = getElement("totalUnits");
+    const available = getElement("availableUnits");
+    const testing = getElement("testingUnits");
+    const expired = getElement("expiredUnits");
 
-    document.getElementById("availableUnits").textContent =
-        bloodUnits.filter(unit => unit.status === "Available").length;
+    if (total) {
+        total.textContent = bloodUnits.length;
+    }
 
-    document.getElementById("testingUnits").textContent =
-        bloodUnits.filter(unit => unit.status === "Testing Pending").length;
+    if (available) {
+        available.textContent = bloodUnits.filter(
+            unit => unit.status === "Available"
+        ).length;
+    }
 
-    document.getElementById("expiredUnits").textContent =
-        bloodUnits.filter(unit => unit.status === "Expired").length;
+    if (testing) {
+        testing.textContent = bloodUnits.filter(
+            unit => unit.status === "Testing Pending"
+        ).length;
+    }
+
+    if (expired) {
+        expired.textContent = bloodUnits.filter(
+            unit => unit.status === "Expired"
+        ).length;
+    }
+}
+
+// ==============================
+// CHECK CONNECTED WALLET
+// ==============================
+
+async function ensureAuthorizedBank() {
+    if (!window.ethereum) {
+        throw new Error("Please install MetaMask.");
+    }
+
+    if (typeof ethers === "undefined") {
+        throw new Error("Ethers.js could not load.");
+    }
+
+    if (!provider || !signer || !bloodLinkContract) {
+        throw new Error("Please connect MetaMask first.");
+    }
+
+    const network = await provider.getNetwork();
+
+    if (network.chainId !== SEPOLIA_CHAIN_ID) {
+        throw new Error(
+            "Please select Sepolia Test Network in MetaMask."
+        );
+    }
+
+    const address = await signer.getAddress();
+
+    const authorized = await bloodLinkContract.authorizedBanks(address);
+
+    if (!authorized) {
+        throw new Error(
+            "The connected wallet is not authorized as a Blood Bank."
+        );
+    }
+
+    return address;
 }
 
 // ==============================
@@ -240,18 +389,29 @@ function updateStatistics() {
 // ==============================
 
 async function generateBloodUnitQR(unitId) {
-    const qrCard = document.getElementById("qrCodeCard");
-    const qrImage = document.getElementById("bloodUnitQR");
-    const qrUnitId = document.getElementById("qrUnitId");
-    const downloadButton = document.getElementById("downloadQRButton");
+    const qrCard = getElement("qrCodeCard");
+    const qrImage = getElement("bloodUnitQR");
+    const qrUnitId = getElement("qrUnitId");
+    const downloadButton = getElement("downloadQRButton");
 
-    let qrContainer;
+    let qrContainer = null;
 
     try {
+        if (
+            !qrCard ||
+            !qrImage ||
+            !qrUnitId ||
+            !downloadButton
+        ) {
+            throw new Error("QR code elements are missing from the page.");
+        }
+
         if (typeof QRCode === "undefined") {
             throw new Error("QR code library could not load.");
         }
 
+        // Existing tracking route uses unitId.
+        // Random tracking tokens will be introduced separately.
         const trackingUrl =
             `${window.location.origin}/track.html?unitId=${encodeURIComponent(unitId)}`;
 
@@ -307,13 +467,7 @@ async function generateBloodUnitQR(unitId) {
 
         currentQRCanvas = finalCanvas;
 
-        const pngData = finalCanvas.toDataURL("image/png");
-
-        if (!pngData.startsWith("data:image/png")) {
-            throw new Error("QR code could not be converted to PNG.");
-        }
-
-        qrImage.src = pngData;
+        qrImage.src = finalCanvas.toDataURL("image/png");
 
         qrUnitId.textContent = "Blood Unit: " + unitId;
 
@@ -327,19 +481,18 @@ async function generateBloodUnitQR(unitId) {
             block: "center"
         });
 
+        return true;
+
     } catch (error) {
         console.error("QR generation error:", error);
 
         currentQRCanvas = null;
 
-        qrCard.style.display = "none";
+        if (qrCard) {
+            qrCard.style.display = "none";
+        }
 
-        document.getElementById("formMessage").textContent =
-            "Blood unit registered successfully, but QR generation failed: " +
-            error.message;
-
-        document.getElementById("formMessage").className =
-            "message error";
+        return false;
 
     } finally {
         if (qrContainer) {
@@ -352,36 +505,35 @@ async function generateBloodUnitQR(unitId) {
 // DOWNLOAD QR CODE AS PNG
 // ==============================
 
-document.getElementById("downloadQRButton").addEventListener(
-    "click",
-    () => {
-        const downloadButton = document.getElementById("downloadQRButton");
+const downloadButton = getElement("downloadQRButton");
 
+if (downloadButton) {
+    downloadButton.addEventListener("click", () => {
         try {
             if (!currentQRCanvas) {
-                throw new Error("No QR code available. Generate a QR code first.");
+                throw new Error(
+                    "No QR code available. Generate a QR code first."
+                );
             }
 
-            currentQRCanvas.toBlob((blob) => {
-
+            currentQRCanvas.toBlob(blob => {
                 if (!blob) {
                     alert("Could not create PNG image.");
                     return;
                 }
 
                 const downloadUrl = URL.createObjectURL(blob);
-
                 const link = document.createElement("a");
 
                 link.href = downloadUrl;
 
                 link.download =
-                    downloadButton.dataset.filename || "BloodLink_QR.png";
+                    downloadButton.dataset.filename ||
+                    "BloodLink_QR.png";
 
                 document.body.appendChild(link);
 
                 link.click();
-
                 link.remove();
 
                 setTimeout(() => {
@@ -395,15 +547,17 @@ document.getElementById("downloadQRButton").addEventListener(
 
             alert("QR download failed: " + error.message);
         }
-    }
-);
+    });
+}
 
 // ==============================
 // UPDATE STATUS
 // MONGODB + BLOCKCHAIN
 // ==============================
 
-async function updateStatus(unitId, status) {
+async function updateStatus(unitId, newStatus) {
+    let blockchainUpdated = false;
+
     try {
         const ownershipResponse = await fetch(
             `${API}/${encodeURIComponent(unitId)}`,
@@ -412,25 +566,39 @@ async function updateStatus(unitId, status) {
             }
         );
 
-        const ownedUnit = await ownershipResponse.json();
+        const ownedUnit = await readJson(ownershipResponse);
 
         if (!ownershipResponse.ok) {
             throw new Error(
-                ownedUnit.message || "You cannot manage this blood unit."
+                ownedUnit.message ||
+                "You cannot manage this blood unit."
             );
         }
 
-        if (!allowedStatuses[ownedUnit.status]?.includes(status)) {
-            throw new Error("This status transition is not allowed.");
+        const currentStatus = ownedUnit.status;
+
+        if (!allowedStatuses[currentStatus]?.includes(newStatus)) {
+            throw new Error(
+                "This status transition is not allowed."
+            );
         }
 
-        if (!bloodLinkContract) {
-            throw new Error("Please connect MetaMask first.");
+        if (new Date(ownedUnit.expiryDate) <= new Date() &&
+            newStatus === "Available") {
+            throw new Error(
+                "Expired blood cannot be made available."
+            );
         }
 
-        const blockchainStatus = blockchainStatuses[status];
+        await ensureAuthorizedBank();
 
-        if (blockchainStatus === undefined) {
+        const targetBlockchainStatus = blockchainStatuses[newStatus];
+        const currentBlockchainStatus = blockchainStatuses[currentStatus];
+
+        if (
+            targetBlockchainStatus === undefined ||
+            currentBlockchainStatus === undefined
+        ) {
             throw new Error("Invalid blockchain status.");
         }
 
@@ -444,26 +612,36 @@ async function updateStatus(unitId, status) {
             );
         }
 
-        const currentStatus = Number(
+        const actualBlockchainStatus = Number(
             existingUnit.status ?? existingUnit[1]
         );
 
-        if (currentStatus === blockchainStatus) {
+        // Prevent updating one system when the two systems
+        // already disagree about the current status.
+        if (actualBlockchainStatus !== currentBlockchainStatus) {
             throw new Error(
-                "This blood unit already has this status on blockchain."
+                "MongoDB and blockchain statuses do not match. Status update stopped to prevent further inconsistency."
             );
         }
 
-        alert("Please confirm the status update in MetaMask.");
+        if (actualBlockchainStatus === targetBlockchainStatus) {
+            throw new Error(
+                "This blood unit already has the requested blockchain status."
+            );
+        }
 
         const transaction = await bloodLinkContract.updateStatus(
             unitId,
-            blockchainStatus
+            targetBlockchainStatus
         );
 
-        alert("Waiting for blockchain confirmation...");
+        const receipt = await transaction.wait();
 
-        await transaction.wait();
+        if (!receipt || Number(receipt.status) !== 1) {
+            throw new Error("Blockchain transaction failed.");
+        }
+
+        blockchainUpdated = true;
 
         const response = await fetch(
             `${API}/${encodeURIComponent(unitId)}/status`,
@@ -473,30 +651,38 @@ async function updateStatus(unitId, status) {
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({ status })
+                body: JSON.stringify({
+                    status: newStatus
+                })
             }
         );
 
-        const result = await response.json();
+        const result = await readJson(response);
 
         if (!response.ok) {
             throw new Error(
-                "Blockchain updated, but MongoDB update failed: " +
-                result.message
+                "Blockchain status was updated, but MongoDB update failed: " +
+                (result.message || "Unknown database error.")
             );
         }
 
         alert(
-            "Status successfully updated in blockchain and MongoDB!"
+            "Status successfully updated in blockchain and MongoDB."
         );
 
-        await loadInventory();
-
     } catch (error) {
-        console.error(error);
+        console.error("Status update error:", error);
 
-        alert(error.reason || error.message);
+        if (blockchainUpdated) {
+            alert(
+                "IMPORTANT: The blockchain was updated, but the MongoDB operation did not complete. The records may now be inconsistent. Do not repeat the transaction blindly. Check both systems before proceeding.\n\n" +
+                error.message
+            );
+        } else {
+            alert(error.reason || error.shortMessage || error.message);
+        }
 
+    } finally {
         await loadInventory();
     }
 }
@@ -505,74 +691,89 @@ async function updateStatus(unitId, status) {
 // SEARCH AND FILTERS
 // ==============================
 
-document.getElementById("searchInput").addEventListener(
-    "input",
-    showInventory
-);
+const searchInput = getElement("searchInput");
+const groupFilter = getElement("groupFilter");
+const statusFilter = getElement("statusFilter");
 
-document.getElementById("groupFilter").addEventListener(
-    "change",
-    showInventory
-);
+if (searchInput) {
+    searchInput.addEventListener("input", showInventory);
+}
 
-document.getElementById("statusFilter").addEventListener(
-    "change",
-    showInventory
-);
+if (groupFilter) {
+    groupFilter.addEventListener("change", showInventory);
+}
+
+if (statusFilter) {
+    statusFilter.addEventListener("change", showInventory);
+}
 
 // ==============================
 // REFRESH INVENTORY
 // ==============================
 
-document.getElementById("refreshButton").addEventListener(
-    "click",
-    loadInventory
-);
+const refreshButton = getElement("refreshButton");
+
+if (refreshButton) {
+    refreshButton.addEventListener("click", loadInventory);
+}
 
 // ==============================
 // DARK MODE
 // ==============================
 
-document.getElementById("themeToggle").addEventListener("click", () => {
-    document.body.classList.toggle("dark");
+const themeToggle = getElement("themeToggle");
 
-    const isDark = document.body.classList.contains("dark");
+function restoreTheme() {
+    const savedTheme = localStorage.getItem("bloodLinkTheme");
 
-    document.getElementById("themeToggle").textContent =
-        isDark ? "Light Mode" : "Dark Mode";
+    if (savedTheme === "dark") {
+        document.body.classList.add("dark");
+    } else {
+        document.body.classList.remove("dark");
+    }
 
-    localStorage.setItem(
-        "bloodLinkTheme",
-        isDark ? "dark" : "light"
-    );
-});
-
-// Restore saved theme
-
-if (localStorage.getItem("bloodLinkTheme") === "dark") {
-    document.body.classList.add("dark");
-
-    document.getElementById("themeToggle").textContent = "Light Mode";
+    if (themeToggle) {
+        themeToggle.textContent =
+            savedTheme === "dark" ? "Light Mode" : "Dark Mode";
+    }
 }
+
+if (themeToggle) {
+    themeToggle.addEventListener("click", () => {
+        document.body.classList.toggle("dark");
+
+        const isDark = document.body.classList.contains("dark");
+
+        themeToggle.textContent =
+            isDark ? "Light Mode" : "Dark Mode";
+
+        localStorage.setItem(
+            "bloodLinkTheme",
+            isDark ? "dark" : "light"
+        );
+    });
+}
+
+restoreTheme();
 
 // ==============================
 // METAMASK BLOCKCHAIN CONNECTION
 // ==============================
 
-const connectButton = document.getElementById("connectWallet");
-const walletStatus = document.getElementById("walletStatus");
-const blockchainStatusElement = document.getElementById("blockchainStatus");
+const connectButton = getElement("connectWallet");
+const walletStatus = getElement("walletStatus");
+const blockchainStatusElement = getElement("blockchainStatus");
 
 async function connectWallet() {
+    if (!connectButton) return;
+
     try {
         if (!window.ethereum) {
             throw new Error("Please install MetaMask.");
         }
 
         if (typeof ethers === "undefined") {
-            throw new Error(
-                "Ethers.js could not load. Check your internet connection."
-            );
+            throw new Error("Ethers.js could not load.");
         }
 
         connectButton.disabled = true;
@@ -586,7 +787,7 @@ async function connectWallet() {
 
         const network = await provider.getNetwork();
 
-        if (network.chainId !== 11155111n) {
+        if (network.chainId !== SEPOLIA_CHAIN_ID) {
             throw new Error(
                 "Please select Sepolia Test Network in MetaMask."
             );
@@ -610,22 +811,37 @@ async function connectWallet() {
 
         const address = await signer.getAddress();
 
-        walletStatus.textContent = "Wallet connected: " + address;
+        const authorized = await bloodLinkContract.authorizedBanks(address);
 
-        blockchainStatusElement.textContent = "Wallet Connected";
+        if (walletStatus) {
+            walletStatus.textContent =
+                "Wallet connected: " + address;
+        }
+
+        if (blockchainStatusElement) {
+            blockchainStatusElement.textContent = authorized
+                ? "Authorized Blood Bank"
+                : "Wallet connected - Not an authorized Blood Bank";
+        }
 
         connectButton.textContent = "Wallet Connected";
 
     } catch (error) {
-        console.error(error);
+        console.error("Wallet connection error:", error);
 
+        provider = null;
+        signer = null;
         bloodLinkContract = null;
 
-        walletStatus.textContent = error.message;
+        if (walletStatus) {
+            walletStatus.textContent = error.message;
+        }
+
+        if (blockchainStatusElement) {
+            blockchainStatusElement.textContent = "Not Connected";
+        }
 
         connectButton.textContent = "Connect MetaMask";
-
-        blockchainStatusElement.textContent = "Not Connected";
 
     } finally {
         connectButton.disabled = false;
@@ -636,44 +852,111 @@ if (connectButton) {
     connectButton.addEventListener("click", connectWallet);
 }
 
+// Reset blockchain connection when the account changes.
+
+if (window.ethereum) {
+    window.ethereum.on("accountsChanged", () => {
+        provider = null;
+        signer = null;
+        bloodLinkContract = null;
+
+        if (walletStatus) {
+            walletStatus.textContent = "Wallet account changed. Reconnect.";
+        }
+
+        if (blockchainStatusElement) {
+            blockchainStatusElement.textContent = "Not Connected";
+        }
+
+        if (connectButton) {
+            connectButton.textContent = "Connect MetaMask";
+        }
+    });
+
+    window.ethereum.on("chainChanged", () => {
+        provider = null;
+        signer = null;
+        bloodLinkContract = null;
+
+        if (walletStatus) {
+            walletStatus.textContent = "Network changed. Reconnect.";
+        }
+
+        if (blockchainStatusElement) {
+            blockchainStatusElement.textContent = "Not Connected";
+        }
+
+        if (connectButton) {
+            connectButton.textContent = "Connect MetaMask";
+        }
+    });
+}
+
 // ==============================
 // REGISTER BLOOD UNIT
 // MONGODB + BLOCKCHAIN + QR
 // ==============================
 
-document.getElementById("bloodForm").addEventListener(
-    "submit",
-    async (event) => {
+const bloodForm = getElement("bloodForm");
 
+if (bloodForm) {
+    bloodForm.addEventListener("submit", async event => {
         event.preventDefault();
 
-        const message = document.getElementById("formMessage");
+        if (registrationInProgress) return;
+
+        const message = getElement("formMessage");
+
+        const submitButton = bloodForm.querySelector(
+            'button[type="submit"], input[type="submit"]'
+        );
 
         const bloodData = {
-            unitId: document.getElementById("unitId").value.trim(),
-            bloodGroup: document.getElementById("bloodGroup").value,
-            component: document.getElementById("component").value,
-            collectionDate: document.getElementById("collectionDate").value,
-            expiryDate: document.getElementById("expiryDate").value,
-            donorId: document.getElementById("donorId").value || null
+            unitId: getElement("unitId")?.value.trim() || "",
+            bloodGroup: getElement("bloodGroup")?.value || "",
+            component: getElement("component")?.value || "",
+            collectionDate: getElement("collectionDate")?.value || "",
+            expiryDate: getElement("expiryDate")?.value || "",
+            donorId: getElement("donorId")?.value || null
         };
 
+        registrationInProgress = true;
+
+        if (submitButton) {
+            submitButton.disabled = true;
+        }
+
         try {
+            if (
+                !bloodData.unitId ||
+                !bloodData.bloodGroup ||
+                !bloodData.component ||
+                !bloodData.collectionDate ||
+                !bloodData.expiryDate
+            ) {
+                throw new Error("Please fill in all required fields.");
+            }
+
+            if (
+                !isValidDate(bloodData.collectionDate) ||
+                !isValidDate(bloodData.expiryDate) ||
+                new Date(`${bloodData.expiryDate}T00:00:00.000Z`) <=
+                new Date(`${bloodData.collectionDate}T00:00:00.000Z`)
+            ) {
+                throw new Error(
+                    "Please enter valid dates. Expiry date must be after collection date."
+                );
+            }
+
             if (!bloodLinkContract) {
                 throw new Error("Please connect MetaMask first.");
             }
 
-            if (
-                new Date(bloodData.expiryDate) <=
-                new Date(bloodData.collectionDate)
-            ) {
-                throw new Error(
-                    "Expiry date must be after collection date."
-                );
-            }
+            // Always verify wallet authorization, even when
+            // the unit already exists on the blockchain.
+            await ensureAuthorizedBank();
 
-            message.textContent = "Checking blockchain...";
-            message.className = "message";
+            showMessage(message, "Checking blockchain...");
 
             const existingUnit = await bloodLinkContract.bloodUnits(
                 bloodData.unitId
@@ -681,49 +964,57 @@ document.getElementById("bloodForm").addEventListener(
 
             const unitExists = existingUnit.exists ?? existingUnit[2];
 
-            if (!unitExists) {
+            if (unitExists) {
+                const existingStatus = Number(
+                    existingUnit.status ?? existingUnit[1]
+                );
 
-                const connectedAddress = await signer.getAddress();
-
-                const isAuthorized =
-                    await bloodLinkContract.authorizedBanks(
-                        connectedAddress
-                    );
-
-                console.log("Connected wallet:", connectedAddress);
-                console.log("Bank authorized:", isAuthorized);
-                console.log("Contract:", CONTRACT_ADDRESS);
-
-                if (!isAuthorized) {
+                if (existingStatus !== blockchainStatuses["Collected"]) {
                     throw new Error(
-                        "The connected wallet is not authorized as a Blood Bank."
+                        "This unit already exists on blockchain with a different status. Automatic registration recovery is not safe."
                     );
                 }
 
-                message.textContent =
-                    "Checking whether blockchain registration is possible...";
+            } else {
+                showMessage(
+                    message,
+                    "Checking whether blockchain registration is possible..."
+                );
 
                 await bloodLinkContract.registerBloodUnit.staticCall(
                     bloodData.unitId
                 );
 
-                message.textContent =
-                    "Pre-check passed. Please confirm in MetaMask...";
+                showMessage(
+                    message,
+                    "Pre-check passed. Please confirm the transaction in MetaMask..."
+                );
 
                 const transaction =
                     await bloodLinkContract.registerBloodUnit(
                         bloodData.unitId
                     );
 
-                message.textContent =
-                    "Waiting for blockchain confirmation...";
+                showMessage(
+                    message,
+                    "Waiting for blockchain confirmation..."
+                );
 
-                await transaction.wait();
+                const receipt = await transaction.wait();
+
+                if (!receipt || Number(receipt.status) !== 1) {
+                    throw new Error(
+                        "Blockchain registration transaction failed."
+                    );
+                }
             }
 
-            // SAVE BLOOD UNIT AND DONOR ID TO MONGODB
+            // Save the unit in MongoDB after blockchain confirmation.
 
-            message.textContent = "Saving blood unit and donor details...";
+            showMessage(
+                message,
+                "Blockchain confirmed. Saving blood unit to database..."
+            );
 
             const response = await fetch(API, {
                 method: "POST",
@@ -734,40 +1025,55 @@ document.getElementById("bloodForm").addEventListener(
                 body: JSON.stringify(bloodData)
             });
 
-            const result = await response.json();
+            const result = await readJson(response);
 
             if (!response.ok) {
                 throw new Error(
-                    "Blockchain record exists, but database save failed: " +
-                    result.message
+                    "Blockchain record exists, but database registration failed: " +
+                    (result.message || "Unknown database error.")
                 );
             }
 
-            document.getElementById("bloodForm").reset();
+            bloodForm.reset();
 
-            message.textContent =
-                "Blood unit registered successfully in MongoDB and blockchain!";
+            const qrGenerated = await generateBloodUnitQR(
+                bloodData.unitId
+            );
 
-            message.className = "message success";
-
-            await generateBloodUnitQR(bloodData.unitId);
+            if (qrGenerated) {
+                showMessage(
+                    message,
+                    "Blood unit registered successfully in MongoDB and blockchain. QR code generated.",
+                    "success"
+                );
+            } else {
+                showMessage(
+                    message,
+                    "Blood unit registered successfully in MongoDB and blockchain, but QR generation failed. You can refresh the page and try again.",
+                    "success"
+                );
+            }
 
             await loadInventory();
 
-            // Refresh donor list after registration
-
-            await loadDonors();
-
         } catch (error) {
-            console.error(error);
+            console.error("Blood registration error:", error);
 
-            message.textContent =
-                error.reason || error.shortMessage || error.message;
+            showMessage(
+                message,
+                error.reason || error.shortMessage || error.message,
+                "error"
+            );
 
-            message.className = "message error";
+        } finally {
+            registrationInProgress = false;
+
+            if (submitButton) {
+                submitButton.disabled = false;
+            }
         }
-    }
-);
+    });
+}
 
 // ==============================
 // LOAD DATA WHEN PAGE OPENS

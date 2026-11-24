@@ -1,4 +1,6 @@
 
+"use strict";
+
 // ==============================
 // BLOOD BANK SESSION
 // ==============================
@@ -6,52 +8,85 @@
 async function loadBloodBankSession() {
     try {
         const response = await fetch("/api/auth/me", {
+            method: "GET",
             credentials: "include"
         });
 
-        if (!response.ok) {
-            window.location.href = "/login.html";
-            return;
+        if (response.status === 401) {
+            window.location.replace("/login.html");
+            return false;
         }
 
-        const data = await response.json();
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error("Invalid server response.");
+        }
+
+        if (!response.ok || !data.user) {
+            throw new Error("Unable to verify your session.");
+        }
 
         if (data.user.role !== "bloodbank") {
-            document.body.innerHTML =
+            document.querySelector(".main-content").innerHTML =
                 "<h2>Access denied. Blood Bank accounts only.</h2>";
-            return;
+            return false;
         }
 
         document.getElementById("bankName").textContent =
-            data.user.name;
+            data.user.name || "Blood Bank";
 
         document.getElementById("bankEmail").textContent =
-            data.user.email;
+            data.user.email || "";
+
+        return true;
 
     } catch (error) {
         console.error("Session check failed:", error);
-        window.location.href = "/login.html";
+
+        window.location.replace("/login.html");
+        return false;
     }
 }
+
 
 // ==============================
 // LOGOUT
 // ==============================
 
-document.getElementById("logoutButton").addEventListener("click", async () => {
-    try {
-        await fetch("/api/auth/logout", {
-            method: "POST",
-            credentials: "include"
-        });
+document.getElementById("logoutButton")
+    .addEventListener("click", async () => {
 
-        window.location.href = "/login.html";
+        const logoutButton =
+            document.getElementById("logoutButton");
 
-    } catch (error) {
-        console.error("Logout failed:", error);
-        alert("Unable to log out. Please try again.");
-    }
-});
+        logoutButton.disabled = true;
+        logoutButton.textContent = "Logging out...";
+
+        try {
+            const response = await fetch("/api/auth/logout", {
+                method: "POST",
+                credentials: "include"
+            });
+
+            if (!response.ok) {
+                throw new Error("Logout failed.");
+            }
+
+            window.location.replace("/login.html");
+
+        } catch (error) {
+            console.error("Logout failed:", error);
+
+            alert("Unable to log out. Please try again.");
+
+            logoutButton.disabled = false;
+            logoutButton.textContent = "Logout";
+        }
+    });
+
 
 // ==============================
 // HTML ESCAPING
@@ -70,6 +105,7 @@ function escapeHTML(value) {
         return entities[character];
     });
 }
+
 
 // ==============================
 // FORMAT DATE
@@ -93,22 +129,32 @@ function formatExpiryDate(dateValue) {
     });
 }
 
+
 // ==============================
 // CALCULATE DAYS REMAINING
 // ==============================
 
 function getDaysRemaining(dateValue) {
+    if (!dateValue) {
+        return null;
+    }
+
     const expiryDate = new Date(dateValue);
+
+    if (isNaN(expiryDate.getTime())) {
+        return null;
+    }
 
     const today = new Date();
 
     today.setHours(0, 0, 0, 0);
     expiryDate.setHours(0, 0, 0, 0);
 
-    return Math.ceil(
+    return Math.round(
         (expiryDate - today) / (1000 * 60 * 60 * 24)
     );
 }
+
 
 // ==============================
 // LOAD EXPIRY ALERTS
@@ -144,34 +190,48 @@ async function loadExpiryAlerts() {
     expiredAlertMessage.textContent = "";
 
     try {
-
         const response = await fetch("/api/expiry-alerts", {
             method: "GET",
             credentials: "include"
         });
 
-        if (!response.ok) {
-
-            if (response.status === 401) {
-                window.location.href = "/login.html";
-                return;
-            }
-
-            throw new Error("Unable to load expiry alerts.");
+        if (response.status === 401) {
+            window.location.replace("/login.html");
+            return;
         }
 
-        const data = await response.json();
+        let data;
 
-        const expiringSoon = data.expiringSoon || [];
-        const expired = data.expired || [];
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error("Invalid expiry alerts response.");
+        }
 
-        // Update counters
+        if (!response.ok) {
+            throw new Error(
+                data.message || "Unable to load expiry alerts."
+            );
+        }
+
+        if (
+            !Array.isArray(data.expiringSoon) ||
+            !Array.isArray(data.expired)
+        ) {
+            throw new Error("Invalid expiry alerts data.");
+        }
+
+        const expiringSoon = data.expiringSoon;
+        const expired = data.expired;
+
+        // UPDATE COUNTERS
 
         expiringSoonCount.textContent =
-            data.summary?.expiringSoon ?? expiringSoon.length;
+            expiringSoon.length;
 
         expiredAlertCount.textContent =
-            data.summary?.expired ?? expired.length;
+            expired.length;
+
 
         // ==============================
         // DISPLAY EXPIRING SOON UNITS
@@ -199,13 +259,19 @@ async function loadExpiryAlerts() {
                         <td>${escapeHTML(unit.unitId)}</td>
                         <td>${escapeHTML(unit.bloodGroup)}</td>
                         <td>${escapeHTML(unit.component)}</td>
-                        <td>${formatExpiryDate(unit.expiryDate)}</td>
-                        <td>${daysRemaining} day(s)</td>
+                        <td>${escapeHTML(formatExpiryDate(unit.expiryDate))}</td>
+                        <td>
+                            ${daysRemaining === null
+                                ? "Invalid date"
+                                : `${daysRemaining} day(s)`
+                            }
+                        </td>
                     </tr>
                 `;
 
             }).join("");
         }
+
 
         // ==============================
         // DISPLAY EXPIRED UNITS
@@ -230,7 +296,7 @@ async function loadExpiryAlerts() {
                         <td>${escapeHTML(unit.unitId)}</td>
                         <td>${escapeHTML(unit.bloodGroup)}</td>
                         <td>${escapeHTML(unit.component)}</td>
-                        <td>${formatExpiryDate(unit.expiryDate)}</td>
+                        <td>${escapeHTML(formatExpiryDate(unit.expiryDate))}</td>
                         <td>${escapeHTML(unit.status)}</td>
                     </tr>
                 `;
@@ -262,6 +328,7 @@ async function loadExpiryAlerts() {
     }
 }
 
+
 // ==============================
 // REFRESH EXPIRY ALERTS
 // ==============================
@@ -269,9 +336,20 @@ async function loadExpiryAlerts() {
 document.getElementById("refreshExpiryButton")
     .addEventListener("click", loadExpiryAlerts);
 
+
 // ==============================
 // INITIALIZE DASHBOARD
 // ==============================
 
-loadBloodBankSession();
-loadExpiryAlerts();
+async function initializeBloodBankDashboard() {
+
+    const authenticated = await loadBloodBankSession();
+
+    if (!authenticated) {
+        return;
+    }
+
+    await loadExpiryAlerts();
+}
+
+initializeBloodBankDashboard();

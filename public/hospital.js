@@ -1,7 +1,11 @@
 
- // ==============================
- // ELEMENTS
- // ==============================
+// ==============================
+// HOSPITAL DASHBOARD
+// ==============================
+
+// ==============================
+// ELEMENTS
+// ==============================
 
 const hospitalName = document.getElementById("hospitalName");
 const hospitalEmail = document.getElementById("hospitalEmail");
@@ -22,6 +26,60 @@ const themeToggle = document.getElementById("themeToggle");
 
 let hospitalRequests = [];
 let processingRequest = false;
+let loadingRequests = false;
+
+// ==============================
+// HELPERS
+// ==============================
+
+async function readJson(response) {
+    try {
+        return await response.json();
+    } catch {
+        return {};
+    }
+}
+
+function showFormMessage(message, type = "") {
+    if (!requestFormMessage) return;
+
+    requestFormMessage.textContent = message;
+    requestFormMessage.className = type
+        ? "message " + type
+        : "message";
+}
+
+function showHistoryMessage(message, type = "") {
+    if (!historyMessage) return;
+
+    historyMessage.textContent = message;
+    historyMessage.className = type
+        ? "message " + type
+        : "message";
+}
+
+function createCell(value) {
+    const cell = document.createElement("td");
+
+    cell.textContent =
+        value === null || value === undefined || value === ""
+            ? "N/A"
+            : String(value);
+
+    return cell;
+}
+
+function redirectToLogin() {
+    window.location.replace("/login.html");
+}
+
+function isValidRequestId(requestId) {
+    return (
+        typeof requestId === "string" &&
+        requestId.trim().length > 0 &&
+        requestId.length <= 100
+    );
+}
 
 // ==============================
 // LOAD HOSPITAL SESSION
@@ -30,32 +88,52 @@ let processingRequest = false;
 async function loadHospitalSession() {
     try {
         const response = await fetch("/api/auth/me", {
-            credentials: "include"
+            credentials: "include",
+            headers: {
+                "Accept": "application/json"
+            }
         });
 
-        if (!response.ok) {
-            window.location.href = "/login.html";
+        const data = await readJson(response);
+
+        if (response.status === 401 || !response.ok || !data.user) {
+            redirectToLogin();
             return;
         }
-
-        const data = await response.json();
 
         if (data.user.role !== "hospital") {
-            document.body.innerHTML = `
-                <h2>Access denied. Hospital accounts only.</h2>
-            `;
+            document.body.textContent =
+                "Access denied. Hospital accounts only.";
             return;
         }
 
-        hospitalName.textContent = data.user.name;
-        hospitalEmail.textContent = data.user.email;
+        if (data.user.isActive === false) {
+            redirectToLogin();
+            return;
+        }
 
-        await loadBloodBanks();
-        await loadHospitalRequests();
+        if (hospitalName) {
+            hospitalName.textContent = data.user.name || "Hospital";
+        }
+
+        if (hospitalEmail) {
+            hospitalEmail.textContent = data.user.email || "";
+        }
+
+        await Promise.all([
+            loadBloodBanks(),
+            loadHospitalRequests()
+        ]);
 
     } catch (error) {
         console.error("Hospital session error:", error);
-        window.location.href = "/login.html";
+
+        showFormMessage(
+            "Unable to verify your session. Please log in again.",
+            "error"
+        );
+
+        redirectToLogin();
     }
 }
 
@@ -64,16 +142,30 @@ async function loadHospitalSession() {
 // ==============================
 
 async function loadBloodBanks() {
-    bloodBankSelect.innerHTML = `
-        <option value="">Loading Blood Banks...</option>
-    `;
+    if (!bloodBankSelect) return;
+
+    bloodBankSelect.replaceChildren();
+
+    const loadingOption = document.createElement("option");
+    loadingOption.value = "";
+    loadingOption.textContent = "Loading Blood Banks...";
+
+    bloodBankSelect.appendChild(loadingOption);
 
     try {
         const response = await fetch("/api/auth/bloodbanks", {
-            credentials: "include"
+            credentials: "include",
+            headers: {
+                "Accept": "application/json"
+            }
         });
 
-        const data = await response.json();
+        const data = await readJson(response);
+
+        if (response.status === 401) {
+            redirectToLogin();
+            return;
+        }
 
         if (!response.ok) {
             throw new Error(
@@ -81,22 +173,42 @@ async function loadBloodBanks() {
             );
         }
 
-        if (!data.bloodBanks || data.bloodBanks.length === 0) {
-            bloodBankSelect.innerHTML = `
-                <option value="">No active Blood Banks available</option>
-            `;
+        if (
+            !Array.isArray(data.bloodBanks) ||
+            data.bloodBanks.length === 0
+        ) {
+            bloodBankSelect.replaceChildren();
+
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "No active Blood Banks available";
+
+            bloodBankSelect.appendChild(option);
             return;
         }
 
-        bloodBankSelect.innerHTML = `
-            <option value="">Select Blood Bank</option>
-        `;
+        bloodBankSelect.replaceChildren();
+
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "Select Blood Bank";
+
+        bloodBankSelect.appendChild(defaultOption);
 
         data.bloodBanks.forEach(bank => {
+            if (
+                !bank ||
+                typeof bank._id !== "string" ||
+                typeof bank.name !== "string"
+            ) {
+                return;
+            }
+
             const option = document.createElement("option");
 
             option.value = bank._id;
-            option.textContent = `${bank.name} (${bank.email})`;
+            option.textContent =
+                `${bank.name} (${bank.email || "No email"})`;
 
             bloodBankSelect.appendChild(option);
         });
@@ -104,9 +216,13 @@ async function loadBloodBanks() {
     } catch (error) {
         console.error("Load Blood Banks error:", error);
 
-        bloodBankSelect.innerHTML = `
-            <option value="">Unable to load Blood Banks</option>
-        `;
+        bloodBankSelect.replaceChildren();
+
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Unable to load Blood Banks";
+
+        bloodBankSelect.appendChild(option);
 
         showFormMessage(error.message, "error");
     }
@@ -116,109 +232,168 @@ async function loadBloodBanks() {
 // SUBMIT BLOOD REQUEST
 // ==============================
 
-requestForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+if (requestForm) {
+    requestForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
 
-    const bloodBankId = bloodBankSelect.value;
+        if (processingRequest) return;
 
-    const bloodGroup = document.getElementById(
-        "requestBloodGroup"
-    ).value;
+        const bloodBankId = bloodBankSelect?.value;
 
-    const component = document.getElementById(
-        "requestComponent"
-    ).value;
+        const bloodGroup = document.getElementById(
+            "requestBloodGroup"
+        )?.value;
 
-    const quantity = Number(
-        document.getElementById("requestQuantity").value
-    );
+        const component = document.getElementById(
+            "requestComponent"
+        )?.value;
 
-    const message = document.getElementById(
-        "requestMessage"
-    ).value.trim();
-
-    if (!bloodBankId || !bloodGroup || !component) {
-        showFormMessage(
-            "Please complete all required fields.",
-            "error"
+        const quantity = Number(
+            document.getElementById("requestQuantity")?.value
         );
-        return;
-    }
 
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
-        showFormMessage(
-            "Quantity must be between 1 and 100.",
-            "error"
-        );
-        return;
-    }
+        const message = document.getElementById(
+            "requestMessage"
+        )?.value.trim() || "";
 
-    submitRequestButton.disabled = true;
-    submitRequestButton.textContent = "Submitting...";
-
-    showFormMessage("Submitting your request...", "info");
-
-    try {
-        const response = await fetch("/api/requests", {
-            method: "POST",
-            credentials: "include",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                bloodBankId,
-                bloodGroup,
-                component,
-                quantity,
-                message
-            })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.message || "Unable to submit request."
+        if (!bloodBankId || !bloodGroup || !component) {
+            showFormMessage(
+                "Please complete all required fields.",
+                "error"
             );
+            return;
+        }
+
+        if (
+            !Number.isInteger(quantity) ||
+            quantity < 1 ||
+            quantity > 100
+        ) {
+            showFormMessage(
+                "Quantity must be between 1 and 100.",
+                "error"
+            );
+            return;
+        }
+
+        if (message.length > 500) {
+            showFormMessage(
+                "Message cannot exceed 500 characters.",
+                "error"
+            );
+            return;
+        }
+
+        processingRequest = true;
+
+        const originalButtonText = submitRequestButton
+            ? submitRequestButton.textContent
+            : "";
+
+        if (submitRequestButton) {
+            submitRequestButton.disabled = true;
+            submitRequestButton.textContent = "Submitting...";
         }
 
         showFormMessage(
-            data.message || "Blood request submitted successfully.",
-            "success"
+            "Submitting your request...",
+            "info"
         );
 
-        requestForm.reset();
+        try {
+            const response = await fetch("/api/requests", {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify({
+                    bloodBankId,
+                    bloodGroup,
+                    component,
+                    quantity,
+                    message
+                })
+            });
 
-        await loadHospitalRequests();
+            const data = await readJson(response);
 
-    } catch (error) {
-        console.error("Submit request error:", error);
+            if (response.status === 401) {
+                redirectToLogin();
+                return;
+            }
 
-        showFormMessage(error.message, "error");
+            if (!response.ok) {
+                throw new Error(
+                    data.message || "Unable to submit request."
+                );
+            }
 
-    } finally {
-        submitRequestButton.disabled = false;
-        submitRequestButton.textContent = "Submit Blood Request";
-    }
-});
+            requestForm.reset();
+
+            showFormMessage(
+                data.message || "Blood request submitted successfully.",
+                "success"
+            );
+
+            await loadHospitalRequests();
+
+        } catch (error) {
+            console.error("Submit request error:", error);
+
+            showFormMessage(error.message, "error");
+
+        } finally {
+            processingRequest = false;
+
+            if (submitRequestButton) {
+                submitRequestButton.disabled = false;
+                submitRequestButton.textContent =
+                    originalButtonText || "Submit Blood Request";
+            }
+
+            displayHospitalRequests();
+        }
+    });
+}
 
 // ==============================
 // LOAD HOSPITAL REQUEST HISTORY
 // ==============================
 
 async function loadHospitalRequests() {
-    requestTable.innerHTML = `
-        <tr>
-            <td colspan="8">Loading requests...</td>
-        </tr>
-    `;
+    if (!requestTable || loadingRequests) return;
+
+    loadingRequests = true;
+
+    if (refreshRequestsButton) {
+        refreshRequestsButton.disabled = true;
+    }
+
+    const loadingRow = document.createElement("tr");
+    const loadingCell = document.createElement("td");
+
+    loadingCell.colSpan = 8;
+    loadingCell.textContent = "Loading requests...";
+
+    loadingRow.appendChild(loadingCell);
+    requestTable.replaceChildren(loadingRow);
 
     try {
         const response = await fetch("/api/requests", {
-            credentials: "include"
+            credentials: "include",
+            headers: {
+                "Accept": "application/json"
+            }
         });
 
-        const data = await response.json();
+        const data = await readJson(response);
+
+        if (response.status === 401) {
+            redirectToLogin();
+            return;
+        }
 
         if (!response.ok) {
             throw new Error(
@@ -226,22 +401,40 @@ async function loadHospitalRequests() {
             );
         }
 
+        if (!Array.isArray(data)) {
+            throw new Error("Invalid request history response.");
+        }
+
         hospitalRequests = data;
 
         displayHospitalRequests();
         updateRequestStatistics();
 
+        showHistoryMessage("");
+
     } catch (error) {
         console.error("Load requests error:", error);
 
-        requestTable.innerHTML = `
-            <tr>
-                <td colspan="8">Unable to load requests.</td>
-            </tr>
-        `;
+        const errorRow = document.createElement("tr");
+        const errorCell = document.createElement("td");
 
-        historyMessage.textContent = error.message;
-        historyMessage.className = "message error";
+        errorCell.colSpan = 8;
+        errorCell.textContent = "Unable to load requests.";
+
+        errorRow.appendChild(errorCell);
+        requestTable.replaceChildren(errorRow);
+
+        showHistoryMessage(error.message, "error");
+
+    } finally {
+        loadingRequests = false;
+
+        if (refreshRequestsButton) {
+            refreshRequestsButton.disabled = false;
+        }
+
+        // FIX: Re-render after loadingRequests becomes false.
+        displayHospitalRequests();
     }
 }
 
@@ -250,99 +443,145 @@ async function loadHospitalRequests() {
 // ==============================
 
 function displayHospitalRequests() {
+    if (!requestTable) return;
+
+    requestTable.replaceChildren();
+
     if (hospitalRequests.length === 0) {
-        requestTable.innerHTML = `
-            <tr>
-                <td colspan="8">You have not submitted any requests.</td>
-            </tr>
-        `;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 8;
+        cell.textContent =
+            "You have not submitted any requests.";
+
+        row.appendChild(cell);
+        requestTable.appendChild(row);
+
         return;
     }
 
-    requestTable.innerHTML = hospitalRequests.map(request => {
+    hospitalRequests.forEach(request => {
+        const row = document.createElement("tr");
 
         const requestDate = request.createdAt
-            ? new Date(request.createdAt).toLocaleDateString()
+            ? new Date(request.createdAt).toLocaleDateString("en-IN")
             : "N/A";
 
-        let actions = "-";
+        row.appendChild(createCell(request.requestId));
+
+        row.appendChild(
+            createCell(
+                request.bloodBank?.name || "Unknown Blood Bank"
+            )
+        );
+
+        row.appendChild(createCell(request.bloodGroup));
+        row.appendChild(createCell(request.component));
+        row.appendChild(createCell(request.quantity));
+        row.appendChild(createCell(requestDate));
+
+        const statusCell = document.createElement("td");
+        const statusElement = document.createElement("span");
+
+        statusElement.className =
+            "request-status " + getStatusClass(request.status);
+
+        statusElement.textContent = request.status || "Unknown";
+
+        statusCell.appendChild(statusElement);
+        row.appendChild(statusCell);
+
+        const actionCell = document.createElement("td");
 
         if (request.status === "Dispatched") {
-            actions = `
-                <button
-                    class="primary-button"
-                    onclick="confirmBloodReceipt('${escapeHTML(request.requestId)}')"
-                    ${processingRequest ? "disabled" : ""}
-                >
-                    Confirm Receipt
-                </button>
-            `;
+            const receiveButton = document.createElement("button");
+
+            receiveButton.type = "button";
+            receiveButton.className = "primary-button";
+            receiveButton.textContent = "Confirm Receipt";
+
+            receiveButton.disabled =
+                processingRequest || loadingRequests;
+
+            receiveButton.addEventListener("click", () => {
+                confirmBloodReceipt(request.requestId);
+            });
+
+            actionCell.appendChild(receiveButton);
+
+        } else {
+            actionCell.textContent = "-";
         }
 
-        return `
-            <tr>
-                <td>${escapeHTML(request.requestId)}</td>
-
-                <td>${escapeHTML(
-                    request.bloodBank?.name || "Unknown Blood Bank"
-                )}</td>
-
-                <td>${escapeHTML(request.bloodGroup)}</td>
-
-                <td>${escapeHTML(request.component)}</td>
-
-                <td>${Number(request.quantity)}</td>
-
-                <td>${requestDate}</td>
-
-                <td>
-                    <span class="request-status ${getStatusClass(request.status)}">
-                        ${escapeHTML(request.status)}
-                    </span>
-                </td>
-
-                <td>${actions}</td>
-            </tr>
-        `;
-    }).join("");
+        row.appendChild(actionCell);
+        requestTable.appendChild(row);
+    });
 }
 
 // ==============================
 // CONFIRM BLOOD RECEIPT
+// MONGODB UPDATE
 // ==============================
 
 async function confirmBloodReceipt(requestId) {
+    if (processingRequest || loadingRequests) return;
 
-    if (processingRequest) {
+    if (!isValidRequestId(requestId)) {
+        showHistoryMessage(
+            "Invalid request ID.",
+            "error"
+        );
         return;
     }
 
-    const confirmed = confirm(
+    const request = hospitalRequests.find(
+        item => item.requestId === requestId
+    );
+
+    if (!request || request.status !== "Dispatched") {
+        showHistoryMessage(
+            "This request is not currently awaiting receipt confirmation.",
+            "error"
+        );
+
+        await loadHospitalRequests();
+        return;
+    }
+
+    const confirmed = window.confirm(
         `Confirm that your hospital has received the blood units for ${requestId}?`
     );
 
-    if (!confirmed) {
-        return;
-    }
+    if (!confirmed) return;
 
     processingRequest = true;
 
     displayHospitalRequests();
 
-    historyMessage.textContent = "Confirming blood receipt...";
-    historyMessage.className = "message info";
+    showHistoryMessage(
+        "Confirming blood receipt...",
+        "info"
+    );
 
     try {
-
         const response = await fetch(
             `/api/requests/${encodeURIComponent(requestId)}/receive`,
             {
                 method: "PATCH",
-                credentials: "include"
+                credentials: "include",
+                headers: {
+                    "Accept": "application/json"
+                }
             }
         );
 
-        const data = await response.json();
+        const data = await readJson(response);
+
+        if (response.status === 401) {
+            redirectToLogin();
+            return;
+        }
 
         if (!response.ok) {
             throw new Error(
@@ -350,24 +589,22 @@ async function confirmBloodReceipt(requestId) {
             );
         }
 
-        historyMessage.textContent =
-            data.message || "Blood receipt confirmed successfully.";
-
-        historyMessage.className = "message success";
+        showHistoryMessage(
+            data.message || "Blood receipt confirmed successfully.",
+            "success"
+        );
 
         await loadHospitalRequests();
 
     } catch (error) {
-
         console.error("Confirm receipt error:", error);
 
-        historyMessage.textContent = error.message;
-        historyMessage.className = "message error";
+        showHistoryMessage(error.message, "error");
+
+        await loadHospitalRequests();
 
     } finally {
-
         processingRequest = false;
-
         displayHospitalRequests();
     }
 }
@@ -377,24 +614,37 @@ async function confirmBloodReceipt(requestId) {
 // ==============================
 
 function updateRequestStatistics() {
-    document.getElementById("totalRequests").textContent =
-        hospitalRequests.length;
+    const totalElement = document.getElementById("totalRequests");
+    const pendingElement = document.getElementById("pendingRequests");
+    const approvedElement = document.getElementById("approvedRequests");
+    const rejectedElement = document.getElementById("rejectedRequests");
 
-    document.getElementById("pendingRequests").textContent =
-        hospitalRequests.filter(
-            request => request.status === "Pending"
-        ).length;
+    if (totalElement) {
+        totalElement.textContent = hospitalRequests.length;
+    }
 
-    document.getElementById("approvedRequests").textContent =
-        hospitalRequests.filter(
-            request => request.status === "Approved" ||
-                       request.status === "Reserved"
-        ).length;
+    if (pendingElement) {
+        pendingElement.textContent =
+            hospitalRequests.filter(
+                request => request.status === "Pending"
+            ).length;
+    }
 
-    document.getElementById("rejectedRequests").textContent =
-        hospitalRequests.filter(
-            request => request.status === "Rejected"
-        ).length;
+    if (approvedElement) {
+        approvedElement.textContent =
+            hospitalRequests.filter(
+                request =>
+                    request.status === "Approved" ||
+                    request.status === "Reserved"
+            ).length;
+    }
+
+    if (rejectedElement) {
+        rejectedElement.textContent =
+            hospitalRequests.filter(
+                request => request.status === "Rejected"
+            ).length;
+    }
 }
 
 // ==============================
@@ -404,6 +654,7 @@ function updateRequestStatistics() {
 function getStatusClass(status) {
     const classes = {
         "Pending": "pending",
+        "Processing": "pending",
         "Approved": "approved",
         "Reserved": "approved",
         "Rejected": "rejected",
@@ -416,72 +667,76 @@ function getStatusClass(status) {
 }
 
 // ==============================
-// ESCAPE HTML
-// ==============================
-
-function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, character => {
-        const entities = {
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;"
-        };
-
-        return entities[character];
-    });
-}
-
-// ==============================
-// FORM MESSAGE
-// ==============================
-
-function showFormMessage(message, type) {
-    requestFormMessage.textContent = message;
-    requestFormMessage.className = "message " + type;
-}
-
-// ==============================
 // REFRESH REQUESTS
 // ==============================
 
-refreshRequestsButton.addEventListener(
-    "click",
-    loadHospitalRequests
-);
+if (refreshRequestsButton) {
+    refreshRequestsButton.addEventListener(
+        "click",
+        loadHospitalRequests
+    );
+}
 
 // ==============================
 // LOGOUT
 // ==============================
 
-logoutButton.addEventListener("click", async () => {
-    try {
-        await fetch("/api/auth/logout", {
-            method: "POST",
-            credentials: "include"
-        });
+if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+        logoutButton.disabled = true;
 
-        window.location.href = "/login.html";
+        try {
+            await fetch("/api/auth/logout", {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Accept": "application/json"
+                }
+            });
 
-    } catch (error) {
-        console.error("Logout error:", error);
-    }
-});
+        } catch (error) {
+            console.error("Logout error:", error);
+
+        } finally {
+            redirectToLogin();
+        }
+    });
+}
 
 // ==============================
 // DARK MODE
 // ==============================
 
-themeToggle.addEventListener("click", () => {
-    document.body.classList.toggle("dark");
+if (themeToggle) {
+    const savedTheme = localStorage.getItem("theme");
 
-    const isDark = document.body.classList.contains("dark");
+    if (savedTheme === "dark") {
+        document.body.classList.add("dark");
+    }
 
-    themeToggle.textContent = isDark
-        ? "Light Mode"
-        : "Dark Mode";
-});
+    function updateThemeButton() {
+        const isDark = document.body.classList.contains("dark");
+
+        themeToggle.textContent = isDark
+            ? "Light Mode"
+            : "Dark Mode";
+    }
+
+    updateThemeButton();
+
+    themeToggle.addEventListener("click", () => {
+        document.body.classList.toggle("dark");
+
+        const isDark = document.body.classList.contains("dark");
+
+        localStorage.setItem(
+            "theme",
+            isDark ? "dark" : "light"
+        );
+
+        updateThemeButton();
+    });
+}
 
 // ==============================
 // INITIALIZE DASHBOARD

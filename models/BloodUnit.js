@@ -1,5 +1,6 @@
 
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 
 const bloodUnitSchema = new mongoose.Schema(
     {
@@ -7,7 +8,18 @@ const bloodUnitSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique: true,
-            trim: true
+            trim: true,
+            maxlength: 100
+        },
+
+        // Random public identifier used by permanent QR tracking URLs.
+        trackingToken: {
+            type: String,
+            required: true,
+            unique: true,
+            immutable: true,
+            select: false,
+            default: () => crypto.randomBytes(32).toString("hex")
         },
 
         bloodGroup: {
@@ -34,7 +46,14 @@ const bloodUnitSchema = new mongoose.Schema(
 
         expiryDate: {
             type: Date,
-            required: true
+            required: true,
+            validate: {
+                validator: function (value) {
+                    return !this.collectionDate ||
+                        value > this.collectionDate;
+                },
+                message: "Expiry date must be after the collection date."
+            }
         },
 
         status: {
@@ -53,7 +72,6 @@ const bloodUnitSchema = new mongoose.Schema(
             default: "Collected"
         },
 
-        // Blood Bank that registered this unit
         registeredBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
@@ -61,7 +79,6 @@ const bloodUnitSchema = new mongoose.Schema(
             index: true
         },
 
-        // Donor who donated this blood unit
         donor: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
@@ -69,7 +86,6 @@ const bloodUnitSchema = new mongoose.Schema(
             index: true
         },
 
-        // Blood request associated with this reserved unit
         reservedForRequest: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "BloodRequest",

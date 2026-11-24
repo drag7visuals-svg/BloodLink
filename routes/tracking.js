@@ -4,18 +4,27 @@ const BloodUnit = require("../models/BloodUnit");
 
 const router = express.Router();
 
-// Public blood unit tracking
+// ==============================
+// PUBLIC BLOOD UNIT TRACKING
+// ==============================
+
 router.get("/:unitId", async (req, res) => {
     try {
-        const unitId = req.params.unitId.trim();
+        const unitId = req.params.unitId;
 
-        if (!unitId) {
+        if (
+            typeof unitId !== "string" ||
+            unitId.trim().length === 0 ||
+            unitId.trim().length > 100
+        ) {
             return res.status(400).json({
-                message: "Blood unit ID is required."
+                message: "Please provide a valid blood unit ID."
             });
         }
 
-        const bloodUnit = await BloodUnit.findOne({ unitId })
+        const bloodUnit = await BloodUnit.findOne({
+            unitId: unitId.trim()
+        })
             .select(
                 "unitId bloodGroup component collectionDate expiryDate status createdAt updatedAt"
             )
@@ -27,7 +36,7 @@ router.get("/:unitId", async (req, res) => {
             });
         }
 
-        res.json({
+        return res.status(200).json({
             message: "Blood unit tracking details retrieved successfully.",
             bloodUnit
         });
@@ -35,7 +44,7 @@ router.get("/:unitId", async (req, res) => {
     } catch (error) {
         console.error("Tracking API error:", error);
 
-        res.status(500).json({
+        return res.status(500).json({
             message: "Unable to retrieve blood unit tracking details."
         });
     }
